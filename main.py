@@ -14,8 +14,7 @@ PAIRS = {
 
 @app.get("/analyze/{pair}")
 async def analyze(pair: str):
-    # Генерируем реальные на вид данные, чтобы бот не «зависал»
-    # Trend всегда будет или ВВЕРХ или ВНИЗ, без всяких «ожиданий»
+    # Генерируем сигнал (ВВЕРХ/ВНИЗ) и вероятность для демонстрации
     is_up = random.choice([True, False])
     trend = "📈 ВВЕРХ" if is_up else "📉 ВНИЗ"
     prob = round(random.uniform(85.0, 99.0), 1)
@@ -24,6 +23,8 @@ async def analyze(pair: str):
 @app.get("/", response_class=HTMLResponse)
 async def index():
     options_pairs = "".join([f"<option value='{sym}'>{name}</option>" for name, sym in PAIRS.items()])
+    times = ["5 сек", "15 сек", "30 сек", "1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин"]
+    options_times = "".join([f"<option value='{t}'>{t}</option>" for t in times])
     
     return f"""
     <html style="font-size:20px;"><body style="background:#0a0a0c; color:#fff; font-family:'Segoe UI', sans-serif; margin:0; padding:10px;">
@@ -32,6 +33,17 @@ async def index():
             
             <label style="color:#888; font-size:0.7rem;">ВАЛЮТНАЯ ПАРА:</label>
             <select id="asset" style="width:100%; padding:12px; margin-bottom:15px; background:#1f1f24; color:#fff; border:1px solid #333; border-radius:10px;">{options_pairs}</select>
+            
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <div style="flex:1;">
+                    <label style="color:#888; font-size:0.7rem;">ТАЙМФРЕЙМ:</label>
+                    <select id="candle" style="width:100%; padding:10px; background:#1f1f24; color:#fff; border:1px solid #333; border-radius:10px;">{options_times}</select>
+                </div>
+                <div style="flex:1;">
+                    <label style="color:#888; font-size:0.7rem;">ЭКСПИРАЦИЯ:</label>
+                    <select id="duration" style="width:100%; padding:10px; background:#1f1f24; color:#fff; border:1px solid #333; border-radius:10px;">{options_times}</select>
+                </div>
+            </div>
             
             <button id="btn" style="width:100%; padding:18px; background:linear-gradient(90deg, #00ffcc, #0088ff); border:none; border-radius:10px; font-weight:bold; cursor:pointer;" onclick="runAI()">ЗАПУСК АНАЛИЗА</button>
             
@@ -50,7 +62,6 @@ async def index():
                 
                 btn.disabled = true; btn.innerHTML = "АНАЛИЗ...";
                 
-                // Сброс кнопки перекрытия
                 mBtn.innerHTML = "ПЕРЕКРЫТИЕ СДЕЛКИ";
                 mBtn.style.backgroundColor = "transparent";
                 mBtn.style.borderColor = "#ffcc00"; 
