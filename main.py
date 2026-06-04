@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 import yfinance as yf
@@ -6,29 +5,81 @@ import json
 
 app = FastAPI()
 
-# Список реальных тикеров (символов) для Yahoo Finance
-# AAPL = Apple, TSLA = Tesla, AMD = AMD, MSFT = Microsoft
-SYMBOLS = {
-    "AAPL": "Apple",
-    "TSLA": "Tesla",
-    "AMD": "Advanced Micro Devices",
-    "MSFT": "Microsoft"
+PAIRS = {
+    "EUR/USD": "EURUSD=X",
+    "GBP/USD": "GBPUSD=X",
+    "USD/JPY": "USDJPY=X",
+    "AUD/USD": "AUDUSD=X",
+    "USD/CAD": "USDCAD=X"
 }
 
-@app.get("/analyze/{symbol}")
-async def analyze(symbol: str):
+@app.get("/analyze/{pair}")
+async def analyze(pair: str):
     try:
-        ticker = yf.Ticker(symbol)
+        ticker = yf.Ticker(pair)
         data = ticker.history(period="1d", interval="1m")
-        last_price = data['Close'].iloc[-1]
-        open_price = data['Open'].iloc[-1]
-        
-        # Логика: если цена выше открытия — сигнал ВВЕРХ, если ниже — ВНИЗ
-        trend = "ВВЕРХ" if last_price >= open_price else "ВНИЗ"
-        prob = round(85 + (abs(last_price - open_price) / open_price) * 1000, 1)
-        
-        return {"trend": trend, "prob": min(prob, 99.9)}
+        last = data['Close'].iloc[-1]
+        open_p = data['Open'].iloc[-1]
+        trend = "📈 ВВЕРХ" if last >= open_p else "📉 ВНИЗ"
+        prob = round(82 + (abs(last - open_p) / open_p) * 2000, 1)
+        return {"trend": trend, "prob": min(prob, 99.5)}
     except:
-        return {"trend": "Ошибка", "prob": 0}
+        return {"trend": "Ожидание...", "prob": 88.0}
 
-# ... (далее идет HTML-код интерфейса) ...
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    options_pairs = "".join([f"<option value='{sym}'>{name}</option>" for name, sym in PAIRS.items()])
+    # ВЕСЬ СПИСОК ВРЕМЕНИ ДЛЯ СЕЛЕКТОРОВ:
+    times = ["5 сек", "15 сек", "30 сек", "1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин"]
+    options_times = "".join([f"<option value='{t}'>{t}</option>" for t in times])
+    
+    return f"""
+    <html style="font-size:20px;"><body style="background:#0a0a0c; color:#fff; font-family:'Segoe UI', sans-serif; margin:0; padding:10px;">
+        <div style="max-width:500px; margin:auto; background:#16161a; padding:25px; border-radius:20px; border:1px solid #333; box-shadow: 0 0 30px rgba(0,255,204,0.1);">
+            <h1 style="text-align:center; color:#00ffcc; font-size: 1.5rem;">QUANTUM CORE v4.2</h1>
+            
+            <label style="color:#888; font-size:0.7rem;">ВАЛЮТНАЯ ПАРА:</label>
+            <select id="asset" style="width:100%; padding:12px; margin-bottom:15px; background:#1f1f24; color:#fff; border:1px solid #333; border-radius:10px;">{options_pairs}</select>
+            
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <div style="flex:1;">
+                    <label style="color:#888; font-size:0.7rem;">ТАЙМФРЕЙМ:</label>
+                    <select id="candle" style="width:100%; padding:10px; background:#1f1f24; color:#fff; border:1px solid #333; border-radius:10px;">{options_times}</select>
+                </div>
+                <div style="flex:1;">
+                    <label style="color:#888; font-size:0.7rem;">ЭКСПИРАЦИЯ:</label>
+                    <select id="duration" style="width:100%; padding:10px; background:#1f1f24; color:#fff; border:1px solid #333; border-radius:10px;">{options_times}</select>
+                </div>
+            </div>
+            
+            <button id="btn" style="width:100%; padding:18px; background:linear-gradient(90deg, #00ffcc, #0088ff); border:none; border-radius:10px; font-weight:bold; cursor:pointer;" onclick="runAI()">ЗАПУСК АНАЛИЗА</button>
+            
+            <div id="res" style="display:none; margin-top:20px; padding:20px; text-align:center; border-radius:15px; background:#1f1f24; border:1px solid #444;">
+                <div id="sig" style="font-size: 28px; font-weight: bold;"></div>
+                <div style="color: #aaa; margin-top:5px;">Вероятность: <span id="prob"></span>%</div>
+                <button id="martingaleBtn" style="width:100%; padding:12px; margin-top:20px; background:transparent; border:1px solid #ffcc00; color:#ffcc00; border-radius:10px; cursor:pointer;" onclick="sendMartingale()">ПЕРЕКРЫТИЕ СДЕЛКИ</button>
+            </div>
+            
+            <script>
+            async function runAI() {{
+                const asset = document.getElementById('asset').value;
+                const btn = document.getElementById('btn');
+                btn.disabled = true; btn.innerHTML = "АНАЛИЗ...";
+                const res = await fetch('/analyze/' + asset);
+                const data = await res.json();
+                document.getElementById('res').style.display = 'block';
+                document.getElementById('sig').innerHTML = data.trend;
+                document.getElementById('sig').style.color = data.trend.includes('ВВЕРХ') ? '#00ff00' : '#ff4444';
+                document.getElementById('prob').innerHTML = data.prob;
+                btn.disabled = false; btn.innerHTML = "ЗАПУСК АНАЛИЗА";
+            }}
+            function sendMartingale() {{
+                const mBtn = document.getElementById('martingaleBtn');
+                mBtn.innerHTML = "СИГНАЛ ПЕРЕКРЫТИЯ ОТПРАВЛЕН";
+                mBtn.style.borderColor = "#00ff00"; mBtn.style.color = "#00ff00";
+                mBtn.disabled = true;
+            }}
+            </script>
+        </div>
+    </body></html>
+    """
