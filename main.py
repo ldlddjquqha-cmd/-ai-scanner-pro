@@ -5,7 +5,7 @@ import random
 
 app = FastAPI()
 
-# Список ТОЛЬКО валютных пар БЕЗ OTC
+# Список активов БЕЗ OTC
 DATA = {
     "Валюты": ["AUD/CHF", "AUD/JPY", "AUD/USD", "CHF/JPY", "EUR/CAD", "EUR/JPY", "EUR/USD", "GBP/AUD", "GBP/CAD", "USD/CAD"]
 }
@@ -13,7 +13,12 @@ DATA = {
 @app.get("/", response_class=HTMLResponse)
 async def index():
     data_json = json.dumps(DATA)
-    times = ["5 сек", "15 сек", "30 сек", "1 мин", "2 мин", "3 мин", "4 мин", "5 мин"]
+    # Список интервалов до 10 минут
+    times = [
+        "5 сек", "15 сек", "30 сек", "1 мин", "2 мин", 
+        "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", 
+        "8 мин", "9 мин", "10 мин"
+    ]
     options_html = "".join([f"<option value='{t}'>{t}</option>" for t in times])
     
     return f"""
@@ -28,6 +33,17 @@ async def index():
             
             <label style="color:#888; font-size:0.7rem;">ВЫБОР АКТИВА:</label>
             <select id="asset" style="width:100%; padding:12px; margin-bottom:15px; background:#1f1f24; color:#fff; border:1px solid #333; border-radius:10px;"></select>
+            
+            <div style="display:flex; gap:10px; margin-bottom:15px;">
+                <div style="flex:1;">
+                    <label style="color:#888; font-size:0.7rem;">ТАЙМФРЕЙМ:</label>
+                    <select id="candle" style="width:100%; padding:10px; background:#1f1f24; color:#fff; border:1px solid #333; border-radius:10px;">{options_html}</select>
+                </div>
+                <div style="flex:1;">
+                    <label style="color:#888; font-size:0.7rem;">ЭКСПИРАЦИЯ:</label>
+                    <select id="duration" style="width:100%; padding:10px; background:#1f1f24; color:#fff; border:1px solid #333; border-radius:10px;">{options_html}</select>
+                </div>
+            </div>
             
             <button id="btn" style="width:100%; padding:18px; background:linear-gradient(90deg, #00ffcc, #0088ff); border:none; border-radius:10px; font-weight:bold; cursor:pointer;" onclick="runAI()">ЗАПУСК АНАЛИЗА</button>
             
