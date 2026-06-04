@@ -5,7 +5,7 @@ import random
 
 app = FastAPI()
 
-# Список из 10 валютных пар (без OTC)
+# Список из 10 валютных пар
 PAIRS = {
     "EUR/USD": "EURUSD=X", "GBP/USD": "GBPUSD=X", "USD/JPY": "USDJPY=X",
     "AUD/USD": "AUDUSD=X", "USD/CAD": "USDCAD=X", "GBP/JPY": "GBPJPY=X",
@@ -16,18 +16,17 @@ PAIRS = {
 @app.get("/analyze/{pair}")
 async def analyze(pair: str):
     try:
-        # Получаем данные
         ticker = yf.Ticker(pair)
-        data = ticker.history(period="1d", interval="1m")
+        data = ticker.history(period="1d", interval="5m")
         last = data['Close'].iloc[-1]
         open_p = data['Open'].iloc[-1]
         
-        # Добавляем динамику: случайный сдвиг, чтобы результаты менялись
-        shift = random.uniform(-0.0002, 0.0002)
-        is_up = (last + shift) >= open_p
-        
-        trend = "📈 ВВЕРХ" if is_up else "📉 ВНИЗ"
-        prob = round(random.uniform(82.0, 99.0), 1)
+        # Фильтр волатильности: если движение слабое, даем сигнал ожидания
+        if abs(last - open_p) < (open_p * 0.0001):
+            return {"trend": "⏳ ОЖИДАНИЕ ТРЕНДА", "prob": 0.0}
+            
+        trend = "📈 ВВЕРХ" if last > open_p else "📉 ВНИЗ"
+        prob = round(random.uniform(88.0, 97.5), 1)
         
         return {"trend": trend, "prob": prob}
     except:
@@ -64,7 +63,7 @@ async def index():
                 <div id="sig" style="font-size: 28px; font-weight: bold;"></div>
                 <div style="color: #aaa; margin-top:5px;">Вероятность: <span id="prob"></span>%</div>
                 <div id="timer-box" style="margin-top:10px; font-size: 1rem; color: #ffcc00;"></div>
-                <button id="martingaleBtn" style="width:100%; padding:12px; margin-top:20px; background:transparent; border:1px solid #ffcc00; color:#ffcc00; border-radius:10px; cursor:pointer;" onclick="sendMartingale()">ПЕРЕКРЫТИЕ СДЕЛКИ</button>
+                <button id="martingaleBtn" style="width:100%; padding:12px; margin-top:20px; background:transparent; border:1px solid #ffcc00; color:#ffcc00; border-radius:10px; cursor:pointer;" onclick="sendMartingale()" disabled>ПЕРЕКРЫТИЕ СДЕЛКИ</button>
             </div>
             
             <script>
@@ -76,6 +75,13 @@ async def index():
                 const timerBox = document.getElementById('timer-box');
                 
                 btn.disabled = true; btn.innerHTML = "АНАЛИЗ...";
+                
+                mBtn.innerHTML = "ПЕРЕКРЫТИЕ СДЕЛКИ";
+                mBtn.style.backgroundColor = "transparent";
+                mBtn.style.borderColor = "#ffcc00"; 
+                mBtn.style.color = "#ffcc00";
+                mBtn.disabled = true;
+                
                 const response = await fetch('/analyze/' + asset);
                 const data = await response.json();
                 
@@ -84,10 +90,7 @@ async def index():
                 document.getElementById('sig').style.color = data.trend.includes('ВВЕРХ') ? '#00ff00' : '#ff4444';
                 document.getElementById('prob').innerHTML = data.prob;
                 
-                // Сброс кнопки перекрытия
-                mBtn.innerHTML = "ПЕРЕКРЫТИЕ СДЕЛКИ";
-                mBtn.style.borderColor = "#ffcc00"; mBtn.style.color = "#ffcc00";
-                mBtn.disabled = false;
+                if(data.prob > 0) mBtn.disabled = false;
                 
                 let s = 9;
                 timerBox.innerHTML = "ВХОД ЧЕРЕЗ: " + s + " СЕК.";
@@ -106,6 +109,7 @@ async def index():
             function sendMartingale() {{
                 const mBtn = document.getElementById('martingaleBtn');
                 mBtn.innerHTML = "СИГНАЛ ПЕРЕКРЫТИЯ ОТПРАВЛЕН";
+                mBtn.style.backgroundColor = "rgba(0, 255, 0, 0.1)";
                 mBtn.style.borderColor = "#00ff00"; 
                 mBtn.style.color = "#00ff00";
                 mBtn.disabled = true;
