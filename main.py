@@ -124,7 +124,7 @@ async def index():
             <span id="flag_icon" style="font-size:20px; line-height:1;">🇷🇺</span>
             <select id="lang" class="lang-select" onchange="changeLang()"><option value="ru">🇷🇺 RU</option><option value="en">🇺🇸 EN</option><option value="ua">🇺🇦 UA</option><option value="es">🇪🇸 ES</option><option value="de">🇩🇪 DE</option></select>
         </div>
-        <a href="https://t.me/+WB89-UHgktU0YmQy" target="_blank" style="text-decoration: none;"><button id="vip_btn_text" class="btn-vip-top">👑 VIP СИГНАЛЫ</button></a>
+        <a href="https://t.me/+uekq4TquqkM4Mzcy" target="_blank" style="text-decoration: none;"><button id="vip_btn_text" class="btn-vip-top">👑 VIP СИГНАЛЫ</button></a>
     </div>
     <div style="max-width:430px; margin:0 auto 30px auto; padding:25px; background:#080a10; border-radius:28px; border: 1px solid #121722; box-shadow: 0 25px 50px rgba(0,0,0,0.8); text-align:center;">
         <div class="stat-panel">
