@@ -4,55 +4,63 @@ import asyncio
 import httpx
 import numpy as np
 import os
+import secrets  # Нужен для генерации уникальных случайных ключей
 import uvicorn
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse
 
 app = FastAPI()
 
-# --- СИСТЕМА ДОСТУПА ---
-DB_FILE = "requests.json"
+# --- НАСТРОЙКА БЕЗОПАСНОСТИ ---
+# Твой секретный мастер-пароль. Нужен тебе, чтобы создавать одноразовые ключи для учеников.
+MY_ADMIN_PASSWORD = "SUPER_ADMIN_123"
 
-def get_db():
-    if not os.path.exists(DB_FILE): return {}
-    with open(DB_FILE, "r", encoding="utf-8") as f:
-        try: return json.load(f)
-        except: return {}
+# Сюда программа сама будет временно сохранять созданные ключи (в оперативную память)
+if not hasattr(app, "active_keys"):
+    app.active_keys = set()
 
-def save_db(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
 
-# --- АДМИН-ПАНЕЛЬ ---
-@app.get("/admin_panel")
-async def admin_panel(secret: str = None):
-    if secret != "SUPER_ADMIN_123": return "Доступ запрещен"
-    db = get_db()
-    html = "<h1>Управление учениками</h1>"
-    for user, info in db.items():
-        status = info.get("status")
-        html += f"<p><b>{user}</b> — Статус: {status} | <a href='/set_status?user={user}&status=approved&secret=SUPER_ADMIN_123'>ОДОБРИТЬ</a> | <a href='/set_status?user={user}&status=blocked&secret=SUPER_ADMIN_123'>ЗАБЛОКИРОВАТЬ</a></p>"
-    return HTMLResponse(html)
+# --- ГЕНЕРАТОР ОДНОРАЗОВЫХ КЛЮЧЕЙ ДЛЯ ТЕБЯ ---
+# Заходи сюда с телефона, чтобы взять новый ключ: твой_сайт/generate_key?master=SUPER_ADMIN_123
+@app.get("/generate_key")
+async def generate_key(master: str = ""):
+    if master != MY_ADMIN_PASSWORD:
+        return HTMLResponse("Ошибка: Доступ к генератору запрещен!", status_code=403)
+    
+    # Генерируем случайный код вида HROM_F37B2A
+    new_key = "HROM_" + secrets.token_hex(3).upper()
+    app.active_keys.add(new_key)
+    
+    return HTMLResponse(f"""
+    <div style="text-align:center; padding:50px; font-family:sans-serif; background:#06080c; color:white; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+        <h2 style="color:#586988; margin-bottom:10px;">Создан новый одноразовый ключ:</h2>
+        <div style="background:#0f131e; border:1px solid #1a2233; padding:20px 40px; border-radius:14px; font-size:24px; font-weight:bold; color:#00ff66; letter-spacing:1px; margin-bottom:20px;">
+            {new_key}
+        </div>
+        <p style="color:#4b5975; max-width:300px; font-size:13px;">Отдай его человеку. Как только он введет его на сайте, ключ сгорит и больше никто не сможет его использовать.</p>
+        <button onclick="window.location.reload()" style="padding:10px 20px; background:#a855f7; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Создать еще один</button>
+    </div>
+    """)
 
-@app.get("/set_status")
-async def set_status(user: str, status: str, secret: str = None):
-    if secret != "SUPER_ADMIN_123": return "Доступ запрещен"
-    db = get_db()
-    if user in db:
-        db[user]["status"] = status
-        save_db(db)
-    return HTMLResponse(f"Статус {user} изменен на {status}! <a href='/admin_panel?secret=SUPER_ADMIN_123'>Назад</a>")
 
-# --- ЛОГИКА ВХОДА ---
+# --- ЛОГИКА ВХОДА (АКТИВАЦИЯ КЛЮЧА) ---
 @app.post("/request_access")
 async def request_access(response: Response, username: str = Form(...)):
-    db = get_db()
-    db[username] = {"status": "pending"}
-    save_db(db)
-    response.set_cookie(key="tg_username", value=username, max_age=31536000)
-    return HTMLResponse("Запрос отправлен. Ожидайте одобрения от @andriddddd. <br><a href='/'>Назад</a>")
+    code_entered = username.strip()
+    
+    # Проверяем, есть ли введенный код в списке созданных ключей
+    if code_entered in app.active_keys:
+        # УДАЛЯЕМ ключ из списка, чтобы его больше никто не смог использовать!
+        app.active_keys.remove(code_entered)
+        
+        # Выдаем этому конкретному устройству доступ на 1 год через куки
+        response.set_cookie(key="tg_username", value="approved_user", max_age=31536000)
+        return HTMLResponse("Код успешно активирован! Доступ получен. <br><a href='/'>ПЕРЕЙТИ К СИГНАЛАМ</a>")
+    else:
+        return HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Этот код не существует, либо уже был активирован кем-то другим!</h2><p>Обратитесь к @andriddddd за новым кодом.</p><br><a href='/' style='color:#a855f7;'>Назад</a></div>")
 
-# --- ОСТАЛЬНОЙ КОД ---
+
+# --- ОСТАЛЬНОЙ КОД СИГНАЛОВ (БЕЗ ИЗМЕНЕНИЙ) ---
 POCKET_API_TOKEN = "Avqw-qRFXfnAsn88w"
 
 BINANCE_MAPPING = {
@@ -179,14 +187,11 @@ async def get_signal(asset: str, timeframe: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    username = request.cookies.get("tg_username")
-    db = get_db()
-    status = db.get(username, {}).get("status") if username else None
-
-    # Сериализуем данные один раз для JS
+    # Проверяем, авторизован ли пользователь (есть ли кука одобренного юзера)
+    user_status = request.cookies.get("tg_username")
     assets_json_str = json.dumps(ASSETS_DATA)
 
-    if status == "approved":
+    if user_status == "approved_user":
         return rf"""
         <html style="background:#06080c; color:#ffffff; font-family:'Segoe UI', Roboto, sans-serif; margin:0; padding:0;">
         <head>
@@ -365,13 +370,15 @@ async def index(request: Request):
         </script>
         </html>
         """
+
+    # ОКНО ОГРАНИЧЕНИЯ ДОСТУПА (Красивая форма ввода ключа)
     return f"""
-    <div style="text-align:center; padding:50px; color:white; font-family:sans-serif; background:#06080c; height:100vh;">
-        <h1>HROM QUANTUM: Доступ ограничен</h1>
-        <p>Введите ваш Telegram Username чтобы отправить запрос на доступ</p>
-        <form action="/request_access" method="post">
-            <input type="text" name="username" placeholder="Ваш @username" required style="padding:10px; border-radius:10px; border:none;">
-            <button type="submit" style="padding:10px; cursor:pointer; background:#963bfe; color:white; border:none; border-radius:10px;">Отправить запрос</button>
+    <div style="text-align:center; padding:50px; color:white; font-family:'Segoe UI', Roboto, sans-serif; background:#06080c; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; margin:0;">
+        <h1 style="color:#963bfe; font-size:28px; margin-bottom:10px; font-weight:900; letter-spacing:1px;">HROM QUANTUM CORE</h1>
+        <p style="color:#586988; margin-bottom:25px; font-size:14px;">Для доступа к сигналам введите ваш уникальный код</p>
+        <form action="/request_access" method="post" style="background:#080a10; padding:30px; border-radius:24px; border:1px solid #1a2233; box-shadow:0 15px 40px rgba(0,0,0,0.6); max-width:320px; width:100%;">
+            <input type="text" name="username" placeholder="Введите код доступа" required style="padding:15px; width:100%; border-radius:14px; border:1px solid #222d42; background:#0f131e; color:white; font-size:15px; font-weight:bold; text-align:center; outline:none; margin-bottom:20px; box-sizing:border-box; letter-spacing:0.5px;">
+            <button type="submit" style="padding:15px; width:100%; cursor:pointer; background:linear-gradient(135deg, #963bfe 0%, #641bfa 100%); color:white; border:none; border-radius:14px; font-weight:800; font-size:13px; letter-spacing:1px; text-transform:uppercase; transition:0.2s; box-shadow:0 5px 15px rgba(100,27,250,0.3);">АКТИВИРОВАТЬ ДОСТУП</button>
         </form>
     </div>
     """
