@@ -12,16 +12,9 @@ from fastapi.responses import HTMLResponse
 app = FastAPI()
 
 # --- СИСТЕМА УПРАВЛЕНИЯ TELEGRAM И АДМИНКОЙ ---
-# Твой рабочий токен бота
 BOT_TOKEN = "8905743098:AAHS3eozt39qyO3Hjiy4GSapT1VlOmPFZW4"
-
-# Твой подтвержденный Telegram ID
 MY_TG_ID = 6765689893
-
-# Пароль администратора для генерации кодов в браузере
 MY_ADMIN_PASSWORD = "SUPER_ADMIN_123"
-
-# Локальная база данных для сохранения сессий и ЧС при перезапусках Render
 DB_FILE = "hrom_database.json"
 
 if not hasattr(app, "generated_keys"):
@@ -40,20 +33,23 @@ def save_db(data):
 
 db = load_db()
 
-# Функция мгновенной отправки сообщений тебе в Telegram чат
+# Функция отправки сообщений с кнопками управления
 async def send_tg_admin(text: str, reply_markup: dict = None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": MY_TG_ID, "text": text, "parse_mode": "HTML"}
     if reply_markup:
         payload["reply_markup"] = reply_markup
     async with httpx.AsyncClient() as client:
-        await client.post(url, json=payload)
+        try:
+            await client.post(url, json=payload)
+        except Exception as e:
+            print(f"Ошибка отправки в ТГ: {e}")
 
-# --- ФОНОВЫЙ ПРОЦЕСС ТГ-БОТА (ОБРАБОТКА НАЖАТИЯ КНОПКИ БАНА И КОМАНД) ---
+# --- ФОНОВЫЙ ПРОЦЕСС ТГ-БОТА (ОБРАБОТКА ИНЛАЙН КНОПОК БАН/РАЗБАН) ---
 async def tg_bot_loop():
     offset = 0
     global db
-    print("ТГ-Админка запущена и слушает твой ID чата...")
+    print("ТГ-Админка запущена...")
     while True:
         try:
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={offset}&timeout=20"
@@ -64,35 +60,56 @@ async def tg_bot_loop():
             for update in updates:
                 offset = update["update_id"] + 1
                 
-                # КЛИК ПО ИНЛАЙН-КНОПКЕ БАНА ПОД УВЕДОМЛЕНИЕМ
+                # ОБРАБОТКА НАЖАТИЙ НА КНОПКИ ПОД СООБЩЕНИЕМ
                 if "callback_query" in update:
                     callback = update["callback_query"]
                     data = callback.get("data", "")
                     chat_id = callback["message"]["chat"]["id"]
                     
                     if chat_id != MY_TG_ID: continue
-                        
-                    if data.startswith("ban_"):
-                        nik_to_ban = data.replace("ban_", "").strip().lower()
+                    
+                    # Нажата кнопка ЗАБЛОКИРОВАТЬ
+                    if data.startswith("tgban_"):
+                        nik_to_ban = data.replace("tgban_", "").strip().lower()
                         
                         db = load_db()
                         if nik_to_ban not in db["banned_nicknames"]:
                             db["banned_nicknames"].append(nik_to_ban)
                         
-                        # Деактивируем вечные куки-сессии этого юзера
+                        # Отключаем активные сессии
                         for token, info in db["sessions"].items():
                             if info["username"].lower() == nik_to_ban:
                                 info["active"] = False
                         save_db(db)
                         
-                        # Всплывающий ответ в интерфейсе Telegram
+                        # Всплывающее окошко в ТГ
                         url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
                         async with httpx.AsyncClient() as c:
-                            await c.post(url_ans, json={"callback_query_id": callback["id"], "text": f"@{nik_to_ban} заблокирован!"})
+                            await c.post(url_ans, json={"callback_query_id": callback["id"], "text": f"@{nik_to_ban} забанен!"})
                             
-                        await send_tg_admin(f"🔴 Пользователь <b>@{nik_to_ban}</b> заблокирован и выкинут с сайта!")
+                        await send_tg_admin(f"🔴 Пользователь <b>@{nik_to_ban}</b> заблокирован и выброшен из терминала!")
+                    
+                    # Нажата кнопка РАЗБЛОКИРОВАТЬ
+                    elif data.startswith("tgunban_"):
+                        nik_to_unban = data.replace("tgunban_", "").strip().lower()
+                        
+                        db = load_db()
+                        if nik_to_unban in db["banned_nicknames"]:
+                            db["banned_nicknames"].remove(nik_to_unban)
+                        
+                        # Возвращаем доступ сессиям
+                        for token, info in db["sessions"].items():
+                            if info["username"].lower() == nik_to_unban:
+                                info["active"] = True
+                        save_db(db)
+                        
+                        url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                        async with httpx.AsyncClient() as c:
+                            await c.post(url_ans, json={"callback_query_id": callback["id"], "text": f"@{nik_to_unban} разбанен!"})
+                            
+                        await send_tg_admin(f"🟢 Пользователь <b>@{nik_to_unban}</b> успешно разблокирован!")
                 
-                # ТЕКСТОВЫЕ КОМАНДЫ УПРАВЛЕНИЯ В ЧАТЕ БОТА
+                # Обычные команды в чате
                 elif "message" in update:
                     message = update["message"]
                     chat_id = message["chat"]["id"]
@@ -101,25 +118,12 @@ async def tg_bot_loop():
                     if chat_id != MY_TG_ID: continue
                     
                     if text == "/start":
-                        await send_tg_admin("Привет, Босс! Сюда приходят сообщения о входе с кнопкой БАНА.\n\nКоманды:\n<code>/list</code> — Черный список\n<code>/unban ник</code> — Разбанить")
-                    
+                        await send_tg_admin("Привет, Босс! Теперь при каждом первом входе нового ученика сюда будет прилетать автоматическое уведомление с кнопками БАНА и РАЗБАНА прямо под ним.")
                     elif text == "/list":
                         db = load_db()
                         banned = db.get("banned_nicknames", [])
-                        if not banned: await send_tg_admin("ЧС пуст.")
-                        else: await send_tg_admin("🚫 <b>Черный список:</b>\n\n" + "\n".join([f"• @{x}" for x in banned]))
-                            
-                    elif text.startswith("/unban "):
-                        nik_to_unban = text.replace("/unban ", "").strip().lower().replace("@", "")
-                        db = load_db()
-                        if nik_to_unban in db["banned_nicknames"]:
-                            db["banned_nicknames"].remove(nik_to_unban)
-                            for token, info in db["sessions"].items():
-                                if info["username"].lower() == nik_to_unban: info["active"] = True
-                            save_db(db)
-                            await send_tg_admin(f"🟢 Пользователь <b>@{nik_to_unban}</b> полностью разблокирован!")
-                        else:
-                            await send_tg_admin(f"Ник @{nik_to_unban} не найден в ЧС.")
+                        if not banned: await send_tg_admin("Черный список пуст.")
+                        else: await send_tg_admin("🚫 <b>Сейчас в ЧС:</b>\n\n" + "\n".join([f"• @{x}" for x in banned]))
                             
         except Exception as e:
             await asyncio.sleep(2)
@@ -151,7 +155,7 @@ async def generate_key(master: str = ""):
     """)
 
 
-# --- ОБРАБОТКА ФОРМЫ ВХОДА И ОТПРАВКА УВЕДОМЛЕНИЯ В ТГ ---
+# --- ОБРАБОТКА ФОРМЫ ВХОДА И АВТО-ОТПРАВКА КНОПОК В ТГ ---
 @app.post("/request_access")
 async def request_access(username: str = Form(...), access_code: str = Form(...)):
     input_nik = username.strip().lower().replace("@", "")
@@ -160,26 +164,29 @@ async def request_access(username: str = Form(...), access_code: str = Form(...)
     global db
     db = load_db()
     
-    # Моментальный разворот, если ник в списке забаненных
     if input_nik in db.get("banned_nicknames", []):
         return HTMLResponse("<body style='background:#06080c; color:white; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Доступ заблокирован администратором!</h2></body>")
     
     if code_entered in app.generated_keys:
-        app.generated_keys.remove(code_entered) # Удаляем использованный код
+        app.generated_keys.remove(code_entered) 
         
-        # Генерируем вечный токен сессии для куки устройства
         user_session_token = secrets.token_hex(16)
         db["sessions"][user_session_token] = {"username": input_nik, "active": True}
         save_db(db)
         
-        # МГНОВЕННАЯ ОТПРАВКА КНОПКИ БАНА ТЕБЕ В ЧАТ
+        # ГЕНЕРИРУЕМ ДВЕ ИНЛАЙН КНОПКИ ПОД УВЕДОМЛЕНИЕМ ДЛЯ КАЖДОГО ЮЗЕРА
         markup = {
-            "inline_keyboard": [[
-                {"text": f"❌ Заблокировать @{input_nik}", "callback_data": f"ban_{input_nik}"}
-            ]]
+            "inline_keyboard": [
+                [
+                    {"text": "❌ Заблокировать", "callback_data": f"tgban_{input_nik}"},
+                    {"text": "✅ Разблокировать", "callback_data": f"tgunban_{input_nik}"}
+                ]
+            ]
         }
+        
+        # Отправляем тебе мгновенный пуш в Telegram
         asyncio.create_task(send_tg_admin(
-            f"🔔 <b>Пользователь @{input_nik} зашел к сигналам!</b>", 
+            f"🔔 <b>Новый ученик активировал код!</b>\n\n<b>Ник:</b> @{input_nik}\n<b>Код:</b> <code>{code_entered}</code>\n\nУправляй доступом с помощью кнопок ниже:", 
             reply_markup=markup
         ))
         
@@ -190,7 +197,7 @@ async def request_access(username: str = Form(...), access_code: str = Form(...)
         return HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Этот код не существует, либо уже активирован!</h2><br><a href='/' style='color:#a855f7;'>Назад</a></div>")
 
 
-# --- СИСТЕМА ФИЛЬТРАЦИИ И ПОЛУЧЕНИЯ СИГНАЛОВ BINANCE ---
+# --- СИСТЕМА СИГНАЛОВ И ОСТАЛЬНОЙ ИНТЕРФЕЙС ---
 POCKET_API_TOKEN = "Avqw-qRFXfnAsn88w"
 
 BINANCE_MAPPING = {
@@ -291,12 +298,9 @@ async def get_signal(asset: str, timeframe: str):
     else: signal, accuracy = ("UP" if curr > ema else "DOWN"), round(60.0 + random.uniform(0, 3), 1)
     return {"signal": signal, "payout": get_pocket_payout(asset), "accuracy": accuracy, "outcome": "WIN"}
 
-
-# --- СТРАНИЦА ТЕРМИНАЛА (БЕЗОПАСНАЯ КУКА С ВАЛИДАЦИЕЙ ЧС) ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     user_token = request.cookies.get("hrom_session_id")
-    
     current_db = load_db()
     is_allowed = False
     current_user_nik = ""
@@ -324,7 +328,6 @@ async def index(request: Request):
                 .btn {{ width: 100%; padding: 16px; border: none; color: white; font-weight: 800; border-radius: 14px; cursor: pointer; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; transition: all 0.2s; margin-bottom: 10px; }}
                 .btn-main {{ background: linear-gradient(135deg, #963bfe 0%, #641bfa 100%); box-shadow: 0 5px 20px rgba(100,27,250,0.4); }}
                 .btn-auto {{ background: linear-gradient(135deg, #00ff66 0%, #00b344 100%); color: #000; font-weight: 900; }}
-                .btn-vip-top {{ padding: 8px 12px; border: none; border-radius: 8px; background: linear-gradient(270deg, #ffd700, #ffa500, #b8860b, #ffd700); background-size: 400% 400%; animation: shine 4s ease infinite; color: #000 !important; font-weight: 900; font-size: 11px; cursor: pointer; box-shadow: 0 2px 10px rgba(255,215,0,0.3); text-transform: uppercase; letter-spacing: 0.5px; }}
                 .btn-pocket {{ background: #141924; border: 1px solid #222d42; color: #38ef7d; }}
                 .btn-support {{ background: #080a10; border: 1px solid #161b26; color: #586988; font-size: 11px; margin-top: 15px; }}
                 .btn-mart {{ background: #ff3344; display: none; width: 100%; }}
@@ -397,9 +400,9 @@ async def index(request: Request):
             function resetStats() {{ wins=0; losses=0; currentBet=100; martStep=0; updateDisplay(); }}
             const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦" }};
             const dictionary = {{ 
-                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", auto: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
-                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET", auto: "AI DO FOR YOU", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
-                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", auto: "ШІ ЗРОБИТЬ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
+                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", auto: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
+                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET", auto: "AI DO FOR YOU", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
+                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", auto: "ШІ ЗРОБИТЬ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "УГОДУ ВІДКРИТО!", close: "ДО ZАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
             }};
             function changeLang() {{ 
                 let l = document.getElementById('lang').value;
@@ -482,7 +485,6 @@ async def index(request: Request):
         </html>
         """
 
-    # ОКНО ФОРМЫ ВВОДА НИКА И КОДА ДЛЯ НОВЫХ УСТРОЙСТВ
     return f"""
     <div style="text-align:center; padding:50px; color:white; font-family:'Segoe UI', Roboto, sans-serif; background:#06080c; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; margin:0; box-sizing:border-box;">
         <h1 style="color:#963bfe; font-size:28px; margin-bottom:10px; font-weight:900; letter-spacing:1px;">HROM QUANTUM CORE</h1>
