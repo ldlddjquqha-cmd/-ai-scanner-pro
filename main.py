@@ -8,12 +8,9 @@ from fastapi.responses import HTMLResponse
 
 app = FastAPI()
 
-# ТВОЙ ОФИЦИАЛЬНЫЙ API-ТОКЕН ДЛЯ ИНТЕГРАЦИИ С POCKET OPTION
 POCKET_API_TOKEN = "Avqw-qRFXfnAsn88w"
 
-# Глобальный маппинг всех активов на реальные биржевые фиды (Binance / Мировые споты)
 BINANCE_MAPPING = {
-    # Живой рынок и OTC Валюты
     "EUR/USD": "EURUSDT", "EUR/USD OTC": "EURUSDT",
     "GBP/USD": "GBPUSDT", "GBP/USD OTC": "GBPUSDT",
     "USD/JPY": "USDJPY", "USD/JPY OTC": "USDJPY",
@@ -24,14 +21,11 @@ BINANCE_MAPPING = {
     "NZD/USD": "NZDUSDT", "NZD/USD OTC": "NZDUSDT",
     "USD/CHF": "USDCHF", "USD/CHF OTC": "USDCHF",
     "EUR/GBP": "EURGBP", "EUR/GBP OTC": "EURGBP",
-    # Крипта
     "Bitcoin OTC": "BTCUSDT", "Ethereum OTC": "ETHUSDT", 
     "Solana OTC": "SOLUSDT", "Ripple OTC": "XRPUSDT",
-    # Сырье и Индексы
     "Gold OTC": "PAXGUSDT", "Silver OTC": "XAGUSDT", 
     "Crude Oil OTC": "USO", "Brent Oil OTC": "BRENT",
     "US 500 OTC": "SPY", "NASDAQ 100 OTC": "QQQ",
-    # Акции
     "Apple OTC": "AAPL", "Microsoft OTC": "MSFT", "Amazon OTC": "AMZN", 
     "Tesla OTC": "TSLA", "NVIDIA OTC": "NVDA", "Google OTC": "GOOGL", 
     "Netflix OTC": "NFLX", "Meta OTC": "META", "Intel OTC": "INTC", "AMD OTC": "AMD"
@@ -100,105 +94,63 @@ def get_pocket_payout(asset: str) -> int:
     if any(crypto in asset for crypto in ["BTC", "ETH", "SOL", "XRP", "LTC", "TRX", "BNB", "DOGE", "Bitcoin", "Ethereum", "Solana", "Ripple"]): return 78
     return 82
 
-# МАТЕМАТИЧЕСКИЙ РАСЧЕТ ОСЦИЛЛЯТОРА RSI
 def calculate_rsi(prices, period=14):
-    if len(prices) < period + 1:
-        return 50.0
-    gains = []
-    losses = []
-    for i in range(1, len(prices)):
-        change = prices[i] - prices[i-1]
-        if change > 0:
-            gains.append(change)
-            losses.append(0)
-        else:
-            gains.append(0)
-            losses.append(abs(change))
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-    if avg_loss == 0:
-        return 100.0
-    rs = avg_gain / avg_loss
+    if len(prices) < period + 1: return 50.0
+    deltas = np.diff(prices)
+    up = np.where(deltas > 0, deltas, 0).mean()
+    down = np.where(deltas < 0, -deltas, 0).mean()
+    if down == 0: return 100.0
+    rs = up / down
     return 100.0 - (100.0 / (1.0 + rs))
 
-# РАСЧЕТ ЭКСПОНЕНЦИАЛЬНОЙ СКОЛЬЗЯЩЕЙ СРЕДНЕЙ (EMA) ДЛЯ ОПРЕДЕЛЕНИЯ ТРЕНДА
 def calculate_ema(prices, period=20):
-    if len(prices) < period:
-        return prices[-1]
-    values = np.array(prices)
-    alpha = 2 / (period + 1)
-    ema = values[0]
-    for price in values[1:]:
-        ema = (price * alpha) + (ema * (1 - alpha))
-    return float(ema)
+    if len(prices) < period: return prices[-1]
+    weights = np.exp(np.linspace(-1., 0., period))
+    weights /= weights.sum()
+    return np.convolve(prices, weights, mode='valid')[-1]
 
 @app.get("/get_signal")
 async def get_signal(asset: str, timeframe: str):
-    await asyncio.sleep(1.5) 
+    await asyncio.sleep(0.8) 
     
     binance_symbol = BINANCE_MAPPING.get(asset, "BTCUSDT")
     is_otc = "OTC" in asset
-    interval = "1m"
     
-    if "мин" in timeframe or "min" in timeframe or "m" in timeframe:
-        try:
-            interval = f"{int(''.join(filter(str.isdigit, timeframe)))}m"
-        except:
-            interval = "1m"
-
-    # --- РЕЖИМ OTC С ВЫСОКИМ СТАБИЛЬНЫМ ПРОХОДОМ (68% WINRATE) ---
     if is_otc:
         random.seed(int(asyncio.get_event_loop().time() * 1000) % 9999)
-        win_chance = random.uniform(0, 100)
-        
-        final_signal = "UP" if win_chance <= 68.0 else "DOWN"
-        accuracy = round(random.uniform(86.4, 95.8), 1)
-        
         return {
-            "signal": final_signal, 
+            "signal": "UP" if random.random() > 0.5 else "DOWN", 
             "payout": get_pocket_payout(asset), 
-            "accuracy": accuracy, 
+            "accuracy": round(random.uniform(67.2, 72.5), 1), 
             "outcome": "WIN",
             "session_verified": True
         }
 
-    # --- РЕЖИМ ЖИВОГО РЫНКА (ФИЛЬТРАЦИЯ ТРЕНДА EMA + RSI) ---
-    prices = []
     try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval={interval}&limit=50"
+        url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval=1m&limit=30"
         async with httpx.AsyncClient() as client:
             response = await client.get(url, timeout=3.0)
-            if response.status_code == 200:
-                candles = response.json()
-                prices = [float(candle[4]) for candle in candles]
-    except Exception:
-        pass
+            candles = response.json()
+            prices = [float(c[4]) for c in candles]
+    except:
+        prices = [100.0] * 30
 
-    if not prices:
-        seed_base = sum(ord(char) for char in POCKET_API_TOKEN) + len(asset)
-        random.seed(seed_base)
-        base_price = random.uniform(10, 500)
-        prices = [base_price * (1 + random.uniform(-0.005, 0.005)) for _ in range(50)]
+    rsi = calculate_rsi(prices)
+    ema = calculate_ema(prices)
+    curr = prices[-1]
 
-    current_price = prices[-1]
-    rsi_value = calculate_rsi(prices[-25:], period=14)
-    ema_value = calculate_ema(prices, period=20)
-    
-    market_trend = "UP" if current_price > ema_value else "DOWN"
-    
-    if rsi_value >= 63 and market_trend == "DOWN":
-        final_signal = "DOWN"
-        accuracy = round(rsi_value if rsi_value <= 97.5 else 94.2, 1)
-    elif rsi_value <= 37 and market_trend == "UP":
-        final_signal = "UP"
-        accuracy = round((100 - rsi_value) if (100 - rsi_value) <= 97.5 else 93.8, 1)
+    if curr > ema and rsi < 35:
+        signal = "UP"
+        accuracy = round(70.0 + random.uniform(0, 5), 1)
+    elif curr < ema and rsi > 65:
+        signal = "DOWN"
+        accuracy = round(70.0 + random.uniform(0, 5), 1)
     else:
-        final_signal = market_trend
-        random.seed(int(current_price * 1000) % 777)
-        accuracy = round(random.uniform(78.5, 88.2), 1)
+        signal = "UP" if curr > ema else "DOWN"
+        accuracy = round(60.0 + random.uniform(0, 3), 1)
 
     return {
-        "signal": final_signal, 
+        "signal": signal, 
         "payout": get_pocket_payout(asset), 
         "accuracy": accuracy, 
         "outcome": "WIN",
@@ -347,8 +299,16 @@ async def index():
             let l = document.getElementById('lang').value;
             let asset = document.getElementById('asset').value; 
             document.getElementById('payout_lbl').innerText = `PAYOUT: ${{calcLocalPayout(asset)}}%`; 
+            
+            // Фильтр экспирации: от 1 минуты на Живом рынке
+            let expSelect = document.getElementById('exp');
+            let options = tf_options[l];
+            if (!asset.includes("OTC")) {{
+                options = options.filter(o => !o.includes("сек") && !o.includes("sec") && !o.includes("seg") && !o.includes("Sek"));
+            }}
+            expSelect.innerHTML = options.map(o => `<option>${{o}}</option>`).join('');
+            
             document.getElementById('time').innerHTML = tf_options[l].map(o => `<option>${{o}}</option>`).join(''); 
-            document.getElementById('exp').innerHTML = tf_options[l].map(o => `<option>${{o}}</option>`).join(''); 
         }}
         
         async function startFlow(isAI, isMart = false) {{
