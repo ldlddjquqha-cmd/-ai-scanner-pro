@@ -11,20 +11,126 @@ from fastapi.responses import HTMLResponse
 
 app = FastAPI()
 
-# --- СВЕРХНАДЕЖНАЯ СИСТЕМА СЕССИЙ (БЕЗ СЛЕТОВ) ---
-# Пароль администратора для генерации
+# --- СИСТЕМА УПРАВЛЕНИЯ TELEGRAM И АДМИНКОЙ ---
+# Твой рабочий токен бота
+BOT_TOKEN = "8905743098:AAHS3eozt39qyO3Hjiy4GSapT1VlOmPFZW4"
+
+# Твой подтвержденный Telegram ID
+MY_TG_ID = 6765689893
+
+# Пароль администратора для генерации кодов в браузере
 MY_ADMIN_PASSWORD = "SUPER_ADMIN_123"
 
-# Секретная строка для подписи кук (чтобы их нельзя было подделать)
-# Если сервер перезапускается, этот ключ должен оставаться прежним, поэтому фиксируем его
-SECRET_COOKIE_VALUE = "HROM_PERMANENT_ACCESS_TOKEN_2026"
+# Локальная база данных для сохранения сессий и ЧС при перезапусках Render
+DB_FILE = "hrom_database.json"
 
-# Для одноразовых ключей используем глобальный список. 
-# Так как ключи нужны только на 1 минуту, чтобы передать ученику, хранить их на диске нет смысла.
 if not hasattr(app, "generated_keys"):
     app.generated_keys = set()
 
-# --- ГЕНЕРАТОР ОДНОРАЗОВЫХ КЛЮЧЕЙ ---
+def load_db():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            try: return json.load(f)
+            except: return {"sessions": {}, "banned_nicknames": []}
+    return {"sessions": {}, "banned_nicknames": []}
+
+def save_db(data):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+db = load_db()
+
+# Функция мгновенной отправки сообщений тебе в Telegram чат
+async def send_tg_admin(text: str, reply_markup: dict = None):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": MY_TG_ID, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    async with httpx.AsyncClient() as client:
+        await client.post(url, json=payload)
+
+# --- ФОНОВЫЙ ПРОЦЕСС ТГ-БОТА (ОБРАБОТКА НАЖАТИЯ КНОПКИ БАНА И КОМАНД) ---
+async def tg_bot_loop():
+    offset = 0
+    global db
+    print("ТГ-Админка запущена и слушает твой ID чата...")
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={offset}&timeout=20"
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, timeout=25.0)
+                updates = resp.json().get("result", [])
+                
+            for update in updates:
+                offset = update["update_id"] + 1
+                
+                # КЛИК ПО ИНЛАЙН-КНОПКЕ БАНА ПОД УВЕДОМЛЕНИЕМ
+                if "callback_query" in update:
+                    callback = update["callback_query"]
+                    data = callback.get("data", "")
+                    chat_id = callback["message"]["chat"]["id"]
+                    
+                    if chat_id != MY_TG_ID: continue
+                        
+                    if data.startswith("ban_"):
+                        nik_to_ban = data.replace("ban_", "").strip().lower()
+                        
+                        db = load_db()
+                        if nik_to_ban not in db["banned_nicknames"]:
+                            db["banned_nicknames"].append(nik_to_ban)
+                        
+                        # Деактивируем вечные куки-сессии этого юзера
+                        for token, info in db["sessions"].items():
+                            if info["username"].lower() == nik_to_ban:
+                                info["active"] = False
+                        save_db(db)
+                        
+                        # Всплывающий ответ в интерфейсе Telegram
+                        url_ans = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+                        async with httpx.AsyncClient() as c:
+                            await c.post(url_ans, json={"callback_query_id": callback["id"], "text": f"@{nik_to_ban} заблокирован!"})
+                            
+                        await send_tg_admin(f"🔴 Пользователь <b>@{nik_to_ban}</b> заблокирован и выкинут с сайта!")
+                
+                # ТЕКСТОВЫЕ КОМАНДЫ УПРАВЛЕНИЯ В ЧАТЕ БОТА
+                elif "message" in update:
+                    message = update["message"]
+                    chat_id = message["chat"]["id"]
+                    text = message.get("text", "").strip()
+                    
+                    if chat_id != MY_TG_ID: continue
+                    
+                    if text == "/start":
+                        await send_tg_admin("Привет, Босс! Сюда приходят сообщения о входе с кнопкой БАНА.\n\nКоманды:\n<code>/list</code> — Черный список\n<code>/unban ник</code> — Разбанить")
+                    
+                    elif text == "/list":
+                        db = load_db()
+                        banned = db.get("banned_nicknames", [])
+                        if not banned: await send_tg_admin("ЧС пуст.")
+                        else: await send_tg_admin("🚫 <b>Черный список:</b>\n\n" + "\n".join([f"• @{x}" for x in banned]))
+                            
+                    elif text.startswith("/unban "):
+                        nik_to_unban = text.replace("/unban ", "").strip().lower().replace("@", "")
+                        db = load_db()
+                        if nik_to_unban in db["banned_nicknames"]:
+                            db["banned_nicknames"].remove(nik_to_unban)
+                            for token, info in db["sessions"].items():
+                                if info["username"].lower() == nik_to_unban: info["active"] = True
+                            save_db(db)
+                            await send_tg_admin(f"🟢 Пользователь <b>@{nik_to_unban}</b> полностью разблокирован!")
+                        else:
+                            await send_tg_admin(f"Ник @{nik_to_unban} не найден в ЧС.")
+                            
+        except Exception as e:
+            await asyncio.sleep(2)
+        await asyncio.sleep(1)
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(tg_bot_loop())
+
+
+# --- БРАУЗЕРНЫЙ ГЕНЕРАТОР ОДНОРАЗОВЫХ КЛЮЧЕЙ ДОСТУПА ---
 @app.get("/generate_key")
 async def generate_key(master: str = ""):
     if master != MY_ADMIN_PASSWORD:
@@ -39,37 +145,52 @@ async def generate_key(master: str = ""):
         <div style="background:#0f131e; border:1px solid #1a2233; padding:20px 40px; border-radius:14px; font-size:24px; font-weight:bold; color:#00ff66; letter-spacing:1px; margin-bottom:20px;">
             {new_key}
         </div>
-        <p style="color:#4b5975; max-width:300px; font-size:13px;">Отдай его человеку. Как только он введет его на сайте, его устройство запомнится навсегда.</p>
+        <p style="color:#4b5975; max-width:300px; font-size:13px;">Отдай его человеку вместе с запросом его Telegram-ника.</p>
         <button onclick="window.location.reload()" style="padding:10px 20px; background:#a855f7; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Создать еще один</button>
     </div>
     """)
 
-# --- ЛОГИКА ВХОДА (АКТИВАЦИЯ КЛЮЧА) ---
+
+# --- ОБРАБОТКА ФОРМЫ ВХОДА И ОТПРАВКА УВЕДОМЛЕНИЯ В ТГ ---
 @app.post("/request_access")
-async def request_access(username: str = Form(...)):
-    code_entered = username.strip()
+async def request_access(username: str = Form(...), access_code: str = Form(...)):
+    input_nik = username.strip().lower().replace("@", "")
+    code_entered = access_code.strip()
+    
+    global db
+    db = load_db()
+    
+    # Моментальный разворот, если ник в списке забаненных
+    if input_nik in db.get("banned_nicknames", []):
+        return HTMLResponse("<body style='background:#06080c; color:white; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Доступ заблокирован администратором!</h2></body>")
     
     if code_entered in app.generated_keys:
-        # Сразу удаляем ключ, чтобы он стал одноразовым
-        app.generated_keys.remove(code_entered)
+        app.generated_keys.remove(code_entered) # Удаляем использованный код
         
-        # Создаем успешный ответ и ВШИВАЕМ вечную куку авторизации
-        response = HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Код успешно активирован!</h2><p>Доступ получен навсегда.</p><br><a href='/' style='color:#a855f7; font-weight:bold; text-decoration:none; border:1px solid #a855f7; padding:10px 20px; border-radius:8px;'>ПЕРЕЙТИ К СИГНАЛАМ</a></div>")
+        # Генерируем вечный токен сессии для куки устройства
+        user_session_token = secrets.token_hex(16)
+        db["sessions"][user_session_token] = {"username": input_nik, "active": True}
+        save_db(db)
         
-        # max_age = 315360000 секунд (это ровно 10 лет доступа)
-        response.set_cookie(
-            key="hrom_auth_session", 
-            value=SECRET_COOKIE_VALUE, 
-            max_age=315360000,
-            path="/",
-            httponly=False
-        )
+        # МГНОВЕННАЯ ОТПРАВКА КНОПКИ БАНА ТЕБЕ В ЧАТ
+        markup = {
+            "inline_keyboard": [[
+                {"text": f"❌ Заблокировать @{input_nik}", "callback_data": f"ban_{input_nik}"}
+            ]]
+        }
+        asyncio.create_task(send_tg_admin(
+            f"🔔 <b>Пользователь @{input_nik} зашел к сигналам!</b>", 
+            reply_markup=markup
+        ))
+        
+        response = HTMLResponse("<script>window.location.href='/';</script>")
+        response.set_cookie(key="hrom_session_id", value=user_session_token, max_age=315360000, path="/")
         return response
     else:
-        return HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Этот код не существует, либо уже был активирован!</h2><p>Обратитесь к администратору за новым кодом.</p><br><a href='/' style='color:#a855f7;'>Назад</a></div>")
+        return HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Этот код не существует, либо уже активирован!</h2><br><a href='/' style='color:#a855f7;'>Назад</a></div>")
 
 
-# --- ОСТАЛЬНОЙ КОД СИГНАЛОВ ---
+# --- СИСТЕМА ФИЛЬТРАЦИИ И ПОЛУЧЕНИЯ СИГНАЛОВ BINANCE ---
 POCKET_API_TOKEN = "Avqw-qRFXfnAsn88w"
 
 BINANCE_MAPPING = {
@@ -153,8 +274,7 @@ def calculate_ema(prices, period=20):
 async def get_signal(asset: str, timeframe: str):
     await asyncio.sleep(0.8) 
     binance_symbol = BINANCE_MAPPING.get(asset, "BTCUSDT")
-    is_otc = "OTC" in asset
-    if is_otc:
+    if "OTC" in asset:
         return {"signal": "UP" if random.random() > 0.5 else "DOWN", "payout": get_pocket_payout(asset), "accuracy": round(random.uniform(67.2, 72.5), 1), "outcome": "WIN"}
     try:
         url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval=1m&limit=30"
@@ -171,15 +291,25 @@ async def get_signal(asset: str, timeframe: str):
     else: signal, accuracy = ("UP" if curr > ema else "DOWN"), round(60.0 + random.uniform(0, 3), 1)
     return {"signal": signal, "payout": get_pocket_payout(asset), "accuracy": accuracy, "outcome": "WIN"}
 
+
+# --- СТРАНИЦА ТЕРМИНАЛА (БЕЗОПАСНАЯ КУКА С ВАЛИДАЦИЕЙ ЧС) ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    # Проверяем наличие нашей вечной секретной куки авторизации
-    auth_cookie = request.cookies.get("hrom_auth_session")
+    user_token = request.cookies.get("hrom_session_id")
     
+    current_db = load_db()
+    is_allowed = False
+    current_user_nik = ""
+    
+    if user_token and user_token in current_db["sessions"]:
+        session_info = current_db["sessions"][user_token]
+        if session_info["active"] and (session_info["username"].lower() not in current_db.get("banned_nicknames", [])):
+            is_allowed = True
+            current_user_nik = session_info["username"]
+
     assets_json_str = json.dumps(ASSETS_DATA)
 
-    # Если кука совпадает с секретным значением — пускаем к сигналам сразу и навсегда!
-    if auth_cookie == SECRET_COOKIE_VALUE:
+    if is_allowed:
         return rf"""
         <html style="background:#06080c; color:#ffffff; font-family:'Segoe UI', Roboto, sans-serif; margin:0; padding:0;">
         <head>
@@ -216,7 +346,7 @@ async def index(request: Request):
                     <option value="ua">🇺🇦 UA</option>
                 </select>
             </div>
-            <a href="https://t.me/+uekq4TquqkM4Mzcy" target="_blank" style="text-decoration: none;"><button id="vip_btn_text" class="btn-vip-top">👑 VIP СИГНАЛЫ</button></a>
+            <div style="font-size:11px; color:#a855f7; font-weight:bold;">УЧЕНИК: @{current_user_nik} ✅</div>
         </div>
         <div style="max-width:430px; margin:0 auto 30px auto; padding:25px; background:#080a10; border-radius:28px; border: 1px solid #121722; box-shadow: 0 25px 50px rgba(0,0,0,0.8); text-align:center;">
             <div class="stat-panel">
@@ -285,7 +415,6 @@ async def index(request: Request):
                 document.getElementById('btn_pocket').innerText = d.pocket; 
                 document.getElementById('btn_supp').innerText = d.support; 
                 document.getElementById('status').innerText = d.ready; 
-                document.getElementById('vip_btn_text').innerText = d.vip; 
                 document.getElementById('martBtn').innerText = d.mart;
                 document.getElementById('lbl_profit').innerText = d.profit;
                 document.getElementById('lbl_loss').innerText = d.loss;
@@ -353,14 +482,25 @@ async def index(request: Request):
         </html>
         """
 
-    # ОКНО ФОРМЫ ВВОДА КОДА (ЕСЛИ КУКИ НЕТ)
+    # ОКНО ФОРМЫ ВВОДА НИКА И КОДА ДЛЯ НОВЫХ УСТРОЙСТВ
     return f"""
     <div style="text-align:center; padding:50px; color:white; font-family:'Segoe UI', Roboto, sans-serif; background:#06080c; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; margin:0; box-sizing:border-box;">
         <h1 style="color:#963bfe; font-size:28px; margin-bottom:10px; font-weight:900; letter-spacing:1px;">HROM QUANTUM CORE</h1>
-        <p style="color:#586988; margin-bottom:25px; font-size:14px;">Для доступа к сигналам введите ваш уникальный код</p>
-        <form action="/request_access" method="post" style="background:#080a10; padding:30px; border-radius:24px; border:1px solid #1a2233; box-shadow:0 15px 40px rgba(0,0,0,0.6); max-width:320px; width:100%; box-sizing:border-box;">
-            <input type="text" name="username" placeholder="Введите код доступа" required style="padding:15px; width:100%; border-radius:14px; border:1px solid #222d42; background:#0f131e; color:white; font-size:15px; font-weight:bold; text-align:center; outline:none; margin-bottom:20px; box-sizing:border-box; letter-spacing:0.5px;">
-            <button type="submit" style="padding:15px; width:100%; cursor:pointer; background:linear-gradient(135deg, #963bfe 0%, #641bfa 100%); color:white; border:none; border-radius:14px; font-weight:800; font-size:13px; letter-spacing:1px; text-transform:uppercase; transition:0.2s; box-shadow:0 5px 15px rgba(100,27,250,0.3);">АКТИВИРОВАТЬ ДОСТУП</button>
+        <p style="color:#586988; margin-bottom:25px; font-size:14px;">Для доступа к сигналам пройдите верификацию устройства</p>
+        
+        <form action="/request_access" method="post" style="background:#080a10; padding:30px; border-radius:24px; border:1px solid #1a2233; box-shadow:0 15px 40px rgba(0,0,0,0.6); max-width:340px; width:100%; box-sizing:border-box;">
+            
+            <div style="text-align:left; margin-bottom:15px;">
+                <label style="font-size:11px; color:#4b5975; font-weight:bold; text-transform:uppercase;">1. Твой Telegram Username</label>
+                <input type="text" name="username" placeholder="@твой_ник_в_тг" required style="padding:15px; width:100%; border-radius:14px; border:1px solid #222d42; background:#0f131e; color:white; font-size:14px; margin-top:5px; box-sizing:border-box; outline:none;">
+            </div>
+            
+            <div style="text-align:left; margin-bottom:25px;">
+                <label style="font-size:11px; color:#4b5975; font-weight:bold; text-transform:uppercase;">2. Одноразовый код доступа</label>
+                <input type="text" name="access_code" placeholder="HROM_XXXXXX" required style="padding:15px; width:100%; border-radius:14px; border:1px solid #222d42; background:#0f131e; color:white; font-size:14px; font-weight:bold; text-align:center; margin-top:5px; box-sizing:border-box; letter-spacing:1px; outline:none;">
+            </div>
+            
+            <button type="submit" style="padding:16px; width:100%; cursor:pointer; background:linear-gradient(135deg, #963bfe 0%, #641bfa 100%); color:white; border:none; border-radius:14px; font-weight:800; font-size:13px; letter-spacing:1px; text-transform:uppercase; transition:0.2s; box-shadow:0 5px 15px rgba(100,27,250,0.3);">АКТИВИРОВАТЬ ДОСТУП</button>
         </form>
     </div>
     """
