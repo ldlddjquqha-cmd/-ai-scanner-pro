@@ -183,6 +183,9 @@ async def index(request: Request):
     db = get_db()
     status = db.get(username, {}).get("status") if username else None
 
+    # Сериализуем данные один раз для JS
+    assets_json_str = json.dumps(ASSETS_DATA)
+
     if status == "approved":
         return rf"""
         <html style="background:#06080c; color:#ffffff; font-family:'Segoe UI', Roboto, sans-serif; margin:0; padding:0;">
@@ -253,7 +256,7 @@ async def index(request: Request):
             <a href="https://t.me/andriddddd" target="_blank" style="text-decoration: none;"><button id="btn_supp" class="btn btn-support">РАЗРАБОТЧИК / SUPPORT</button></a>
         </div>
         <script>
-            const rawData = {json.dumps(ASSETS_DATA)};
+            const rawData = {assets_json_str};
             const tf_options = {{
                 ru: ["5 сек", "15 сек", "30 сек", "1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин"],
                 en: ["5 sec", "15 sec", "30 sec", "1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min"],
