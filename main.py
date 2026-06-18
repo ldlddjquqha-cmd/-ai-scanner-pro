@@ -3,6 +3,8 @@ import random
 import asyncio
 import httpx
 import numpy as np
+import os
+import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
@@ -300,7 +302,6 @@ async def index():
             let asset = document.getElementById('asset').value; 
             document.getElementById('payout_lbl').innerText = `PAYOUT: ${{calcLocalPayout(asset)}}%`; 
             
-            // Фильтр экспирации: от 1 минуты на Живом рынке
             let expSelect = document.getElementById('exp');
             let options = tf_options[l];
             if (!asset.includes("OTC")) {{
@@ -373,3 +374,7 @@ async def index():
     </script>
     </html>
     """
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
