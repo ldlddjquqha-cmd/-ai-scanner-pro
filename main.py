@@ -23,7 +23,7 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
-# --- АДМИН-ПАНЕЛЬ (Заходи по ссылке: /admin_panel?secret=ТВОЙ_ПАРОЛЬ) ---
+# --- АДМИН-ПАНЕЛЬ ---
 @app.get("/admin_panel")
 async def admin_panel(secret: str = None):
     if secret != "SUPER_ADMIN_123": return "Доступ запрещен"
@@ -184,7 +184,7 @@ async def index(request: Request):
     status = db.get(username, {}).get("status") if username else None
 
     if status == "approved":
-        return f"""
+        return rf"""
         <html style="background:#06080c; color:#ffffff; font-family:'Segoe UI', Roboto, sans-serif; margin:0; padding:0;">
         <head>
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
