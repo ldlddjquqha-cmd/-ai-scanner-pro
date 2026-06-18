@@ -148,13 +148,10 @@ async def get_signal(asset: str, timeframe: str):
 
     # --- РЕЖИМ OTC С ВЫСОКИМ СТАБИЛЬНЫМ ПРОХОДОМ (68% WINRATE) ---
     if is_otc:
-        # Привязываемся к текущему времени микросекунд для уникальности, но держим винрейт
         random.seed(int(asyncio.get_event_loop().time() * 1000) % 9999)
         win_chance = random.uniform(0, 100)
         
-        # Симулируем 68% успешных прогнозов
         final_signal = "UP" if win_chance <= 68.0 else "DOWN"
-        # Для красоты выводим высокую "точность" в UI канала
         accuracy = round(random.uniform(86.4, 95.8), 1)
         
         return {
@@ -168,7 +165,6 @@ async def get_signal(asset: str, timeframe: str):
     # --- РЕЖИМ ЖИВОГО РЫНКА (ФИЛЬТРАЦИЯ ТРЕНДА EMA + RSI) ---
     prices = []
     try:
-        # Запрашиваем 50 свечей, чтобы корректно построить скользящую среднюю EMA
         url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval={interval}&limit=50"
         async with httpx.AsyncClient() as client:
             response = await client.get(url, timeout=3.0)
@@ -178,7 +174,6 @@ async def get_signal(asset: str, timeframe: str):
     except Exception:
         pass
 
-    # Безопасный откат, если API Binance временно недоступно
     if not prices:
         seed_base = sum(ord(char) for char in POCKET_API_TOKEN) + len(asset)
         random.seed(seed_base)
@@ -189,10 +184,8 @@ async def get_signal(asset: str, timeframe: str):
     rsi_value = calculate_rsi(prices[-25:], period=14)
     ema_value = calculate_ema(prices, period=20)
     
-    # Определяем глобальное направление тренда
     market_trend = "UP" if current_price > ema_value else "DOWN"
     
-    # Фильтруем сигналы: заходим по RSI только если это совпадает со структурой тренда
     if rsi_value >= 63 and market_trend == "DOWN":
         final_signal = "DOWN"
         accuracy = round(rsi_value if rsi_value <= 97.5 else 94.2, 1)
@@ -200,7 +193,6 @@ async def get_signal(asset: str, timeframe: str):
         final_signal = "UP"
         accuracy = round((100 - rsi_value) if (100 - rsi_value) <= 97.5 else 93.8, 1)
     else:
-        # Если RSI в нейтральной зоне, заходим строго в сторону сильного движения цены
         final_signal = market_trend
         random.seed(int(current_price * 1000) % 777)
         accuracy = round(random.uniform(78.5, 88.2), 1)
@@ -424,9 +416,9 @@ async def index():
                             timerEl.innerText = d.end; 
                             document.getElementById('martBtn').style.display = 'block';
                         }}
-                    }, 1000);
+                    }}, 1000);
                 }}
-            }, 1000);
+            }}, 1000);
         }}
 
         changeLang();
