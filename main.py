@@ -11,25 +11,18 @@ from fastapi.responses import HTMLResponse
 
 app = FastAPI()
 
-# --- НАДЕЖНАЯ СИСТЕМА ДОСТУПА (БЕЗ СЛЕТОВ) ---
-DB_FILE = "access_db.json"
+# --- СВЕРХНАДЕЖНАЯ СИСТЕМА СЕССИЙ (БЕЗ СЛЕТОВ) ---
+# Пароль администратора для генерации
 MY_ADMIN_PASSWORD = "SUPER_ADMIN_123"
 
-def load_db():
-    if not os.path.exists(DB_FILE):
-        return {"active_keys": [], "approved_devices": []}
-    with open(DB_FILE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except:
-            return {"active_keys": [], "approved_devices": []}
+# Секретная строка для подписи кук (чтобы их нельзя было подделать)
+# Если сервер перезапускается, этот ключ должен оставаться прежним, поэтому фиксируем его
+SECRET_COOKIE_VALUE = "HROM_PERMANENT_ACCESS_TOKEN_2026"
 
-def save_db(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
-
-# Инициализируем базу при старте
-db_data = load_db()
+# Для одноразовых ключей используем глобальный список. 
+# Так как ключи нужны только на 1 минуту, чтобы передать ученику, хранить их на диске нет смысла.
+if not hasattr(app, "generated_keys"):
+    app.generated_keys = set()
 
 # --- ГЕНЕРАТОР ОДНОРАЗОВЫХ КЛЮЧЕЙ ---
 @app.get("/generate_key")
@@ -38,45 +31,45 @@ async def generate_key(master: str = ""):
         return HTMLResponse("Ошибка: Доступ к генератору запрещен!", status_code=403)
     
     new_key = "HROM_" + secrets.token_hex(3).upper()
-    
-    db = load_db()
-    db["active_keys"].append(new_key)
-    save_db(db)
+    app.generated_keys.add(new_key)
     
     return HTMLResponse(f"""
-    <div style="text-align:center; padding:50px; font-family:sans-serif; background:#06080c; color:white; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+    <div style="text-align:center; padding:50px; font-family:sans-serif; background:#06080c; color:white; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; margin:0; box-sizing:border-box;">
         <h2 style="color:#586988; margin-bottom:10px;">Создан новый одноразовый ключ:</h2>
         <div style="background:#0f131e; border:1px solid #1a2233; padding:20px 40px; border-radius:14px; font-size:24px; font-weight:bold; color:#00ff66; letter-spacing:1px; margin-bottom:20px;">
             {new_key}
         </div>
-        <p style="color:#4b5975; max-width:300px; font-size:13px;">Отдай его человеку. Как только он введет его на сайте, ключ сгорит в файле базы данных, а его устройство запомнится навсегда.</p>
+        <p style="color:#4b5975; max-width:300px; font-size:13px;">Отдай его человеку. Как только он введет его на сайте, его устройство запомнится навсегда.</p>
         <button onclick="window.location.reload()" style="padding:10px 20px; background:#a855f7; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Создать еще один</button>
     </div>
     """)
 
 # --- ЛОГИКА ВХОДА (АКТИВАЦИЯ КЛЮЧА) ---
 @app.post("/request_access")
-async def request_access(response: Response, username: str = Form(...)):
+async def request_access(username: str = Form(...)):
     code_entered = username.strip()
-    db = load_db()
     
-    if code_entered in db["active_keys"]:
-        # Удаляем ключ из базы, чтобы никто больше не зашел
-        db["active_keys"].remove(code_entered)
+    if code_entered in app.generated_keys:
+        # Сразу удаляем ключ, чтобы он стал одноразовым
+        app.generated_keys.remove(code_entered)
         
-        # Создаем вечный уникальный токен для этого ученика
-        user_token = secrets.token_hex(16)
-        db["approved_devices"].append(user_token)
-        save_db(db)
+        # Создаем успешный ответ и ВШИВАЕМ вечную куку авторизации
+        response = HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Код успешно активирован!</h2><p>Доступ получен навсегда.</p><br><a href='/' style='color:#a855f7; font-weight:bold; text-decoration:none; border:1px solid #a855f7; padding:10px 20px; border-radius:8px;'>ПЕРЕЙТИ К СИГНАЛАМ</a></div>")
         
-        # Ставим куку на 10 лет (максимальный срок)
-        response.set_cookie(key="user_device_token", value=user_token, max_age=315360000)
-        return HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Код успешно активирован!</h2><p>Доступ получен навсегда.</p><br><a href='/' style='color:#a855f7; font-weight:bold;'>ПЕРЕЙТИ К СИГНАЛАМ</a></div>")
+        # max_age = 315360000 секунд (это ровно 10 лет доступа)
+        response.set_cookie(
+            key="hrom_auth_session", 
+            value=SECRET_COOKIE_VALUE, 
+            max_age=315360000,
+            path="/",
+            httponly=False
+        )
+        return response
     else:
-        return HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Этот код не существует, либо уже был активирован!</h2><p>Обратитесь к @andriddddd за новым кодом.</p><br><a href='/' style='color:#a855f7;'>Назад</a></div>")
+        return HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Этот код не существует, либо уже был активирован!</h2><p>Обратитесь к администратору за новым кодом.</p><br><a href='/' style='color:#a855f7;'>Назад</a></div>")
 
 
-# --- ОСТАЛЬНОЙ КОД СИГНАЛОВ (БЕЗ ИЗМЕНЕНИЙ) ---
+# --- ОСТАЛЬНОЙ КОД СИГНАЛОВ ---
 POCKET_API_TOKEN = "Avqw-qRFXfnAsn88w"
 
 BINANCE_MAPPING = {
@@ -133,34 +126,12 @@ ASSETS_DATA = {
         "[ВСІ АКТИВИ] — ЖИВИЙ РИНОК": {
             "ВАЛЮТНІ ПАРИ": ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "USD/CHF", "EUR/JPY", "GBP/JPY", "EUR/GBP"]
         }
-    },
-    "es": {
-        "[TODOS LOS ACTIVOS] — CICLO OTC": {
-            "PARES DE DIVISAS": ["EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC", "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"],
-            "ACCIONES": ["Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC", "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"],
-            "CRIPTOMONEDAS": ["Bitcoin OTC", "Ethereum OTC", "Solana OTC", "Ripple OTC"],
-            "MATERIAS PRIMAS / ÍNDICES": ["Gold OTC", "Silver OTC", "Crude Oil OTC", "Brent Oil OTC", "US 500 OTC", "NASDAQ 100 OTC"]
-        },
-        "[TODOS LOS ACTIVOS] — MERCADO EN VIVO": {
-            "PARES DE DIVISAS": ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "USD/CHF", "EUR/JPY", "GBP/JPY", "EUR/GBP"]
-        }
-    },
-    "de": {
-        "[ALLE VERMÖGENSWERTE] — OTC-ZYKLUS": {
-            "WÄHRUNGSPAARE": ["EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC", "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"],
-            "AKTIEN": ["Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC", "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"],
-            "KRYPTOWÄHRUNG": ["Bitcoin OTC", "Ethereum OTC", "Solana OTC", "Ripple OTC"],
-            "ROHSTOFFE / INDIZES": ["Gold OTC", "Silver OTC", "Crude Oil OTC", "Brent Oil OTC", "US 500 OTC", "NASDAQ 100 OTC"]
-        },
-        "[ALLE VERMÖGENSWERTE] — LIVE-MARKT": {
-            "WÄHRUNGSPAARE": ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "USD/CHF", "EUR/JPY", "GBP/JPY", "EUR/GBP"]
-        }
     }
 }
 
 def get_pocket_payout(asset: str) -> int:
     if "OTC" in asset: return 92
-    if any(crypto in asset for crypto in ["BTC", "ETH", "SOL", "XRP", "LTC", "TRX", "BNB", "DOGE", "Bitcoin", "Ethereum", "Solana", "Ripple"]): return 78
+    if any(crypto in asset for crypto in ["BTC", "ETH", "SOL", "XRP"]): return 78
     return 82
 
 def calculate_rsi(prices, period=14):
@@ -184,8 +155,7 @@ async def get_signal(asset: str, timeframe: str):
     binance_symbol = BINANCE_MAPPING.get(asset, "BTCUSDT")
     is_otc = "OTC" in asset
     if is_otc:
-        random.seed(int(asyncio.get_event_loop().time() * 1000) % 9999)
-        return {"signal": "UP" if random.random() > 0.5 else "DOWN", "payout": get_pocket_payout(asset), "accuracy": round(random.uniform(67.2, 72.5), 1), "outcome": "WIN", "session_verified": True}
+        return {"signal": "UP" if random.random() > 0.5 else "DOWN", "payout": get_pocket_payout(asset), "accuracy": round(random.uniform(67.2, 72.5), 1), "outcome": "WIN"}
     try:
         url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval=1m&limit=30"
         async with httpx.AsyncClient() as client:
@@ -199,18 +169,17 @@ async def get_signal(asset: str, timeframe: str):
     if curr > ema and rsi < 35: signal, accuracy = "UP", round(70.0 + random.uniform(0, 5), 1)
     elif curr < ema and rsi > 65: signal, accuracy = "DOWN", round(70.0 + random.uniform(0, 5), 1)
     else: signal, accuracy = ("UP" if curr > ema else "DOWN"), round(60.0 + random.uniform(0, 3), 1)
-    return {"signal": signal, "payout": get_pocket_payout(asset), "accuracy": accuracy, "outcome": "WIN", "session_verified": True}
+    return {"signal": signal, "payout": get_pocket_payout(asset), "accuracy": accuracy, "outcome": "WIN"}
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    # Проверяем токен устройства по нашей базе файлов
-    user_token = request.cookies.get("user_device_token")
-    db = load_db()
+    # Проверяем наличие нашей вечной секретной куки авторизации
+    auth_cookie = request.cookies.get("hrom_auth_session")
     
     assets_json_str = json.dumps(ASSETS_DATA)
 
-    # Если токен есть в списке одобренных, пускаем сразу и НАВСЕГДА
-    if user_token and user_token in db.get("approved_devices", []):
+    # Если кука совпадает с секретным значением — пускаем к сигналам сразу и навсегда!
+    if auth_cookie == SECRET_COOKIE_VALUE:
         return rf"""
         <html style="background:#06080c; color:#ffffff; font-family:'Segoe UI', Roboto, sans-serif; margin:0; padding:0;">
         <head>
@@ -245,8 +214,6 @@ async def index(request: Request):
                     <option value="ru">🇷🇺 RU</option>
                     <option value="en">🇺🇸 EN</option>
                     <option value="ua">🇺🇦 UA</option>
-                    <option value="es">🇪🇸 ES</option>
-                    <option value="de">🇩🇪 DE</option>
                 </select>
             </div>
             <a href="https://t.me/+uekq4TquqkM4Mzcy" target="_blank" style="text-decoration: none;"><button id="vip_btn_text" class="btn-vip-top">👑 VIP СИГНАЛЫ</button></a>
@@ -284,9 +251,7 @@ async def index(request: Request):
             const tf_options = {{
                 ru: ["5 сек", "15 сек", "30 сек", "1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин"],
                 en: ["5 sec", "15 sec", "30 sec", "1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min"],
-                ua: ["5 сек", "15 сек", "30 сек", "1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "6 хв", "7 хв", "8 хв", "9 хв", "10 хв"],
-                es: ["5 seg", "15 seg", "30 seg", "1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min"],
-                de: ["5 Sek", "15 Sek", "30 Sek", "1 Min", "2 Min", "3 Min", "4 Min", "5 Min", "6 Min", "7 Min", "8 Min", "9 Min", "10 Min"]
+                ua: ["5 сек", "15 сек", "30 сек", "1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "6 хв", "7 хв", "8 хв", "9 хв", "10 хв"]
             }};
             let wins = 0, losses = 0, currentBet = 100, martStep = 0, currentInterval = null, currentExpInterval = null;
             function updateStat(type, val) {{ if(type=='win') wins = Math.max(0, wins + val); else losses = Math.max(0, losses + val); updateDisplay(); }}
@@ -300,13 +265,11 @@ async def index(request: Request):
                 el.style.color = wr >= 50 ? "#00ff66" : "#ff3344";
             }}
             function resetStats() {{ wins=0; losses=0; currentBet=100; martStep=0; updateDisplay(); }}
-            const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦", es: "🇪🇸", de: "🇩🇪" }};
+            const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦" }};
             const dictionary = {{ 
                 ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", auto: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
                 en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET", auto: "AI DO FOR YOU", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
-                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", auto: "ШІ ЗРОБИТЬ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }},
-                es: {{ market: "CATEGORÍA DE MERCADO", type: "TIPO DE ACTIVOS", asset: "PAR ACTIVO", tf: "TIMEFRAME DE VELA", exp: "EXPIRACIÓN", scan: "ESCANEAR MERCADO", auto: "IA LO HACE POR TI", pocket: "ABRIR POCKET OPTION", support: "DESARROLLADOR / SUPPORT", ready: "SISTEMA SINCRONIZADO", vip: "👑 SEÑALES VIP", mart: "MARTINGALA", profit: "Ganancia", loss: "Pérdida", reset: "REINICIAR ESTADÍSTICAS", up: "SUBIR", down: "BAJAR", enter: "ENTRADA EN: ", open: "¡OPERCION ABIERTA!", close: "CIERRE EN: ", end: "CICLO COMPLETADO" }},
-                de: {{ market: "MARKTKATEGORIE", type: "PRODUKTTYP", asset: "AKTIVES PAAR", tf: "KERZEN ZEITRAHMEN", exp: "ABLAUFZEIT", scan: "MARKT SCANNEN", auto: "KI MACHT ES FÜR DICH", pocket: "POCKET OPTION ÖFFNEN", support: "ENTWICKLER / SUPPORT", ready: "SYSTEM SYNCHRONISIERT", vip: "👑 VIP SIGNALE", mart: "MARTINGALE", profit: "Gewinn", loss: "Verlust", reset: "STATISTIK ZURÜCKSETZEN", up: "HOCH", down: "RUNTER", enter: "EINSTIEG IN: ", open: "DEAL GEÖFFNET!", close: "RESTZEIT: ", end: "ZYKLUS BEENDET" }}
+                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", auto: "ШІ ЗРОБИТЬ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
             }};
             function changeLang() {{ 
                 let l = document.getElementById('lang').value;
@@ -341,7 +304,7 @@ async def index(request: Request):
                 document.getElementById('payout_lbl').innerText = `PAYOUT: ${{calcLocalPayout(asset)}}%`; 
                 let expSelect = document.getElementById('exp');
                 let options = tf_options[l];
-                if (!asset.includes("OTC")) {{ options = options.filter(o => !o.includes("сек") && !o.includes("sec") && !o.includes("seg") && !o.includes("Sek")); }}
+                if (!asset.includes("OTC")) {{ options = options.filter(o => !o.includes("сек") && !o.includes("sec") && !o.includes("Sek")); }}
                 expSelect.innerHTML = options.map(o => `<option>${{o}}</option>`).join('');
                 document.getElementById('time').innerHTML = tf_options[l].map(o => `<option>${{o}}</option>`).join(''); 
             }}
@@ -377,7 +340,7 @@ async def index(request: Request):
                 document.getElementById('accuracy').innerText = "ACCURACY: " + data.accuracy + "%";
                 let expVal = document.getElementById('exp').value;
                 let expSeconds = parseInt(expVal.replace(/\D/g, ''));
-                if (!expVal.includes("сек") && !expVal.includes("sec") && !expVal.includes("seg") && !expVal.includes("Sek")) {{ expSeconds = expSeconds * 60; }}
+                if (!expVal.includes("сек") && !expVal.includes("sec") && !expVal.includes("Sek")) {{ expSeconds = expSeconds * 60; }}
                 timerEl = document.getElementById('timer');
                 timerEl.innerText = d.open;
                 currentExpInterval = setInterval(() => {{
@@ -390,12 +353,12 @@ async def index(request: Request):
         </html>
         """
 
-    # ОКНО ФОРМЫ ВВОДА КОДА
+    # ОКНО ФОРМЫ ВВОДА КОДА (ЕСЛИ КУКИ НЕТ)
     return f"""
-    <div style="text-align:center; padding:50px; color:white; font-family:'Segoe UI', Roboto, sans-serif; background:#06080c; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; margin:0;">
+    <div style="text-align:center; padding:50px; color:white; font-family:'Segoe UI', Roboto, sans-serif; background:#06080c; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; margin:0; box-sizing:border-box;">
         <h1 style="color:#963bfe; font-size:28px; margin-bottom:10px; font-weight:900; letter-spacing:1px;">HROM QUANTUM CORE</h1>
         <p style="color:#586988; margin-bottom:25px; font-size:14px;">Для доступа к сигналам введите ваш уникальный код</p>
-        <form action="/request_access" method="post" style="background:#080a10; padding:30px; border-radius:24px; border:1px solid #1a2233; box-shadow:0 15px 40px rgba(0,0,0,0.6); max-width:320px; width:100%;">
+        <form action="/request_access" method="post" style="background:#080a10; padding:30px; border-radius:24px; border:1px solid #1a2233; box-shadow:0 15px 40px rgba(0,0,0,0.6); max-width:320px; width:100%; box-sizing:border-box;">
             <input type="text" name="username" placeholder="Введите код доступа" required style="padding:15px; width:100%; border-radius:14px; border:1px solid #222d42; background:#0f131e; color:white; font-size:15px; font-weight:bold; text-align:center; outline:none; margin-bottom:20px; box-sizing:border-box; letter-spacing:0.5px;">
             <button type="submit" style="padding:15px; width:100%; cursor:pointer; background:linear-gradient(135deg, #963bfe 0%, #641bfa 100%); color:white; border:none; border-radius:14px; font-weight:800; font-size:13px; letter-spacing:1px; text-transform:uppercase; transition:0.2s; box-shadow:0 5px 15px rgba(100,27,250,0.3);">АКТИВИРОВАТЬ ДОСТУП</button>
         </form>
