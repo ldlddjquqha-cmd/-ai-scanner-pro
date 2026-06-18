@@ -4,32 +4,44 @@ import asyncio
 import httpx
 import numpy as np
 import os
-import secrets  # Нужен для генерации уникальных случайных ключей
+import secrets
 import uvicorn
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse
 
 app = FastAPI()
 
-# --- НАСТРОЙКА БЕЗОПАСНОСТИ ---
-# Твой секретный мастер-пароль. Нужен тебе, чтобы создавать одноразовые ключи для учеников.
+# --- НАДЕЖНАЯ СИСТЕМА ДОСТУПА (БЕЗ СЛЕТОВ) ---
+DB_FILE = "access_db.json"
 MY_ADMIN_PASSWORD = "SUPER_ADMIN_123"
 
-# Сюда программа сама будет временно сохранять созданные ключи (в оперативную память)
-if not hasattr(app, "active_keys"):
-    app.active_keys = set()
+def load_db():
+    if not os.path.exists(DB_FILE):
+        return {"active_keys": [], "approved_devices": []}
+    with open(DB_FILE, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except:
+            return {"active_keys": [], "approved_devices": []}
 
+def save_db(data):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
 
-# --- ГЕНЕРАТОР ОДНОРАЗОВЫХ КЛЮЧЕЙ ДЛЯ ТЕБЯ ---
-# Заходи сюда с телефона, чтобы взять новый ключ: твой_сайт/generate_key?master=SUPER_ADMIN_123
+# Инициализируем базу при старте
+db_data = load_db()
+
+# --- ГЕНЕРАТОР ОДНОРАЗОВЫХ КЛЮЧЕЙ ---
 @app.get("/generate_key")
 async def generate_key(master: str = ""):
     if master != MY_ADMIN_PASSWORD:
         return HTMLResponse("Ошибка: Доступ к генератору запрещен!", status_code=403)
     
-    # Генерируем случайный код вида HROM_F37B2A
     new_key = "HROM_" + secrets.token_hex(3).upper()
-    app.active_keys.add(new_key)
+    
+    db = load_db()
+    db["active_keys"].append(new_key)
+    save_db(db)
     
     return HTMLResponse(f"""
     <div style="text-align:center; padding:50px; font-family:sans-serif; background:#06080c; color:white; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;">
@@ -37,27 +49,31 @@ async def generate_key(master: str = ""):
         <div style="background:#0f131e; border:1px solid #1a2233; padding:20px 40px; border-radius:14px; font-size:24px; font-weight:bold; color:#00ff66; letter-spacing:1px; margin-bottom:20px;">
             {new_key}
         </div>
-        <p style="color:#4b5975; max-width:300px; font-size:13px;">Отдай его человеку. Как только он введет его на сайте, ключ сгорит и больше никто не сможет его использовать.</p>
+        <p style="color:#4b5975; max-width:300px; font-size:13px;">Отдай его человеку. Как только он введет его на сайте, ключ сгорит в файле базы данных, а его устройство запомнится навсегда.</p>
         <button onclick="window.location.reload()" style="padding:10px 20px; background:#a855f7; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Создать еще один</button>
     </div>
     """)
-
 
 # --- ЛОГИКА ВХОДА (АКТИВАЦИЯ КЛЮЧА) ---
 @app.post("/request_access")
 async def request_access(response: Response, username: str = Form(...)):
     code_entered = username.strip()
+    db = load_db()
     
-    # Проверяем, есть ли введенный код в списке созданных ключей
-    if code_entered in app.active_keys:
-        # УДАЛЯЕМ ключ из списка, чтобы его больше никто не смог использовать!
-        app.active_keys.remove(code_entered)
+    if code_entered in db["active_keys"]:
+        # Удаляем ключ из базы, чтобы никто больше не зашел
+        db["active_keys"].remove(code_entered)
         
-        # Выдаем этому конкретному устройству доступ на 1 год через куки
-        response.set_cookie(key="tg_username", value="approved_user", max_age=31536000)
-        return HTMLResponse("Код успешно активирован! Доступ получен. <br><a href='/'>ПЕРЕЙТИ К СИГНАЛАМ</a>")
+        # Создаем вечный уникальный токен для этого ученика
+        user_token = secrets.token_hex(16)
+        db["approved_devices"].append(user_token)
+        save_db(db)
+        
+        # Ставим куку на 10 лет (максимальный срок)
+        response.set_cookie(key="user_device_token", value=user_token, max_age=315360000)
+        return HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Код успешно активирован!</h2><p>Доступ получен навсегда.</p><br><a href='/' style='color:#a855f7; font-weight:bold;'>ПЕРЕЙТИ К СИГНАЛАМ</a></div>")
     else:
-        return HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Этот код не существует, либо уже был активирован кем-то другим!</h2><p>Обратитесь к @andriddddd за новым кодом.</p><br><a href='/' style='color:#a855f7;'>Назад</a></div>")
+        return HTMLResponse("<div style='color:white; background:#06080c; height:100vh; text-align:center; padding-top:50px; font-family:sans-serif;'><h2>Этот код не существует, либо уже был активирован!</h2><p>Обратитесь к @andriddddd за новым кодом.</p><br><a href='/' style='color:#a855f7;'>Назад</a></div>")
 
 
 # --- ОСТАЛЬНОЙ КОД СИГНАЛОВ (БЕЗ ИЗМЕНЕНИЙ) ---
@@ -187,11 +203,14 @@ async def get_signal(asset: str, timeframe: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    # Проверяем, авторизован ли пользователь (есть ли кука одобренного юзера)
-    user_status = request.cookies.get("tg_username")
+    # Проверяем токен устройства по нашей базе файлов
+    user_token = request.cookies.get("user_device_token")
+    db = load_db()
+    
     assets_json_str = json.dumps(ASSETS_DATA)
 
-    if user_status == "approved_user":
+    # Если токен есть в списке одобренных, пускаем сразу и НАВСЕГДА
+    if user_token and user_token in db.get("approved_devices", []):
         return rf"""
         <html style="background:#06080c; color:#ffffff; font-family:'Segoe UI', Roboto, sans-serif; margin:0; padding:0;">
         <head>
@@ -371,7 +390,7 @@ async def index(request: Request):
         </html>
         """
 
-    # ОКНО ОГРАНИЧЕНИЯ ДОСТУПА (Красивая форма ввода ключа)
+    # ОКНО ФОРМЫ ВВОДА КОДА
     return f"""
     <div style="text-align:center; padding:50px; color:white; font-family:'Segoe UI', Roboto, sans-serif; background:#06080c; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; margin:0;">
         <h1 style="color:#963bfe; font-size:28px; margin-bottom:10px; font-weight:900; letter-spacing:1px;">HROM QUANTUM CORE</h1>
