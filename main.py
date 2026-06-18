@@ -269,6 +269,8 @@ async def index():
         let wins = 0, losses = 0;
         let currentBet = 100;
         let martStep = 0;
+        let currentInterval = null;
+        let currentExpInterval = null;
 
         function updateStat(type, val) {{ if(type=='win') wins = Math.max(0, wins + val); else losses = Math.max(0, losses + val); updateDisplay(); }}
         function updateDisplay() {{
@@ -330,6 +332,10 @@ async def index():
         }}
         
         async function startFlow(isAI, isMart = false) {{
+            // Сбрасываем старые таймеры, чтобы ничего не накладывалось и не глючило
+            if(currentInterval) clearInterval(currentInterval);
+            if(currentExpInterval) clearInterval(currentExpInterval);
+
             let l = document.getElementById('lang').value;
             let d = dictionary[l] || dictionary['en'];
             
@@ -337,6 +343,13 @@ async def index():
                 let cats = Object.keys(rawData[l]);
                 document.getElementById('cat').selectedIndex = Math.floor(Math.random()*cats.length); 
                 updCategory(); 
+                // Случайный выбор подкатегории и случайного актива для режима ИИ
+                let subCats = document.getElementById('sub_cat').options;
+                document.getElementById('sub_cat').selectedIndex = Math.floor(Math.random()*subCats.length);
+                updSubCategory();
+                let assets = document.getElementById('asset').options;
+                document.getElementById('asset').selectedIndex = Math.floor(Math.random()*assets.length);
+                updAsset();
             }}
             
             if(!isMart) {{ currentBet = 100; martStep = 0; }} 
@@ -344,13 +357,15 @@ async def index():
 
             document.getElementById('martBtn').style.display = 'none';
             document.getElementById('res').innerText = "--";
+            document.getElementById('accuracy').style.display = 'none';
+            document.getElementById('timer').innerText = "";
             document.getElementById('loader').style.display = 'block';
-            await new Promise(r => setTimeout(r, 1500));
-            document.getElementById('loader').style.display = 'none';
             
+            // Запрос сигнала из бэкенда FastAPI
             let resp = await fetch(`/get_signal?asset=${{encodeURIComponent(document.getElementById('asset').value)}}&timeframe=${{encodeURIComponent(document.getElementById('time').value)}}`);
             let data = await resp.json();
             
+            document.getElementById('loader').style.display = 'none';
             document.getElementById('res').innerText = (data.signal == "UP" ? d.up : d.down);
             document.getElementById('res').style.color = data.signal == "UP" ? "#00ff66" : "#ff3344";
             document.getElementById('accuracy').style.display = 'block';
@@ -362,23 +377,33 @@ async def index():
                 expSeconds = expSeconds * 60;
             }}
             
-            let wait = 5;
+            // ГЛАВНОЕ ОБНОВЛЕНИЕ: Задаем время обратного отсчета в зависимости от режима
+            let wait = isAI ? 25 : 10;
+            
             let timerEl = document.getElementById('timer');
-            let int = setInterval(() => {{
-                timerEl.innerText = d.enter + wait;
-                if(wait-- <= 0) {{
-                    clearInterval(int);
+            timerEl.innerText = d.enter + wait + (l == 'ru' || l == 'ua' ? " сек" : " sec");
+            
+            currentInterval = setInterval(() => {{
+                wait--;
+                if(wait > 0) {{
+                    timerEl.innerText = d.enter + wait + (l == 'ru' || l == 'ua' ? " сек" : " sec");
+                }} else {{
+                    clearInterval(currentInterval);
                     timerEl.innerText = d.open;
-                    let expInt = setInterval(() => {{
-                        timerEl.innerText = d.close + expSeconds;
-                        if(expSeconds-- <= 0) {{ 
-                            clearInterval(expInt); 
+                    
+                    // Таймер экспирации сделки
+                    currentExpInterval = setInterval(() => {{
+                        if(expSeconds > 0) {
+                            timerEl.innerText = d.close + expSeconds + (l == 'ru' || l == 'ua' ? " сек" : " sec");
+                            expSeconds--;
+                        } else { 
+                            clearInterval(currentExpInterval); 
                             timerEl.innerText = d.end; 
                             document.getElementById('martBtn').style.display = 'block';
-                        }}
-                    }}, 1000);
+                        }
+                    }, 1000);
                 }}
-            }}, 1000);
+            }, 1000);
         }}
 
         changeLang();
