@@ -12,8 +12,8 @@ app = FastAPI()
 
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
-BOT_TOKEN = "8905743098:AAHS3eozt39qyO3Hjiy4GSapT1VlOmPFZW4"
-ADMIN_CHAT_ID = "0"  # Сюда впиши свой числовой ID из Telegram
+BOT_TOKEN = "8905743098:AAFCqIHqY1PzaVM4hqISpvuBV4s2ka30bfs"
+ADMIN_CHAT_ID = "6765689893"  # Сюда впиши свой числовой ID из Telegram (например, 123456789)
 
 def get_db():
     if not os.path.exists(DB_FILE): 
@@ -30,10 +30,10 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
-# Фоновая отправка уведомления в Telegram
+# Фоновая отправка уведомления в Telegram (срабатывает мгновенно)
 async def send_tg_notification(username, code):
     if ADMIN_CHAT_ID == "0":
-        print("Внимание: Не указан ADMIN_CHAT_ID!")
+        print("Внимание: Не указан ADMIN_CHAT_ID! Уведомление не отправлено.")
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
@@ -101,32 +101,38 @@ async def set_status(user: str, status: str, secret: str = None):
         save_db(db)
     return HTMLResponse(f"Статус {user} изменен на {status}! <a href='/admin_panel?secret=SUPER_ADMIN_123'>Назад</a>")
 
-# --- ЭНДПОИНТ ПРОВЕРКИ СТАТУСА ДЛЯ ФРОНТЕНДА ---
+# --- СТРОГАЯ ПРОВЕРКА СТАТУСА ДЛЯ ФРОНТЕНДА ---
 @app.get("/check_user_status")
 async def check_user_status(username: str = ""):
     username = username.strip().replace("@", "").replace(" ", "")
     db = get_db()
+    # Проверяем, есть ли пользователь в базе и какой у него статус
     status = db["users"].get(username, {}).get("status") if username else None
     return JSONResponse({"status": status})
 
-# --- ИСПРАВЛЕННАЯ ЛОГИКА АКТИВАЦИИ ---
+# --- ЖЕСТКАЯ ЛОГИКА АКТИВАЦИИ ОДНОРАЗОВЫХ КОДОВ ---
 @app.post("/request_access")
 async def request_access(username: str = Form(...), code: str = Form(...)):
     username = username.strip().replace("@", "").replace(" ", "")
     code = code.strip().replace(" ", "")
     db = get_db()
     
+    # Если пользователь уже активирован ранее
     if username in db["users"] and db["users"][username]["status"] == "approved":
         return JSONResponse({"success": True, "message": "Доступ уже подтвержден! Заходим..."})
 
+    # СТРОГАЯ ПРОВЕРКА: Если введенного кода нет в списке доступных ключей
     if code not in db["keys"]:
-        return JSONResponse({"success": False, "message": "Неверный или использованный код!"})
+        return JSONResponse({"success": False, "message": "Неверный или уже использованный код!"})
     
+    # Если код верный: удаляем его из одноразовых и добавляем пользователя в одобренные
     db["keys"].remove(code)
     db["users"][username] = {"status": "approved", "used_code": code}
     save_db(db)
     
+    # Моментально отправляем уведомление в Telegram бот
     asyncio.create_task(send_tg_notification(username, code))
+    
     return JSONResponse({"success": True, "message": "Код успешно активирован! Загрузка..."})
 
 # --- ТРЕЙДИНГ ДАННЫЕ И ИНДИКАТОРЫ ---
@@ -254,7 +260,7 @@ async def get_signal(asset: str, timeframe: str):
     else: signal, accuracy = ("UP" if curr > ema else "DOWN"), round(60.0 + random.uniform(0, 3), 1)
     return {"signal": signal, "payout": get_pocket_payout(asset), "accuracy": accuracy, "outcome": "WIN", "session_verified": True}
 
-# --- ГЛАВНАЯ СТРАНИЦА И ИСПРАВЛЕННОЕ ОКНО ВХОДА ---
+# --- ГЛАВНАЯ СТРАНИЦА И ИСПРАВЛЕННЫЙ ИНТЕРФЕЙС ---
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return rf"""
@@ -376,7 +382,7 @@ async def index():
             
             let wins = 0, losses = 0, currentBet = 100, martStep = 0, currentInterval = null, currentExpInterval = null;
 
-            // Живая проверка токена при входе
+            // Настоящая верификация пользователя на бэкенде
             async function checkAuth() {{
                 const localUser = localStorage.getItem('tg_username');
                 if (!localUser) {{
@@ -386,12 +392,15 @@ async def index():
                 try {{
                     const response = await fetch('/check_user_status?username=' + encodeURIComponent(localUser));
                     const data = await response.json();
+                    
+                    // Пускаем ТОЛЬКО если бэкенд явно ответил 'approved'
                     if (data.status === 'approved') {{
                         showScreen('terminal-screen');
                         changeLang();
                     }} else if (data.status === 'blocked') {{
                         showScreen('blocked-screen');
                     }} else {{
+                        // Если в базе его нет или статус пустой — сбрасываем вход
                         localStorage.removeItem('tg_username');
                         showScreen('auth-screen');
                     }}
@@ -404,12 +413,7 @@ async def index():
                 document.getElementById('auth-screen').style.display = 'none';
                 document.getElementById('terminal-screen').style.display = 'none';
                 document.getElementById('blocked-screen').style.display = 'none';
-                
-                if(screenId === 'terminal-screen') {{
-                    document.getElementById(screenId).style.display = 'flex';
-                }} else {{
-                    document.getElementById(screenId).style.display = 'flex';
-                }}
+                document.getElementById(screenId).style.display = 'flex';
             }}
 
             function logout() {{
@@ -436,7 +440,7 @@ async def index():
                 ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", auto: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
                 en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET", auto: "AI DO FOR YOU", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
                 ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", auto: "ШІ ЗРОБИТЬ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }},
-                es: {{ market: "CATEGORÍA DE MERCADO", type: "TIPO DE ACTIVOS", asset: "PAR ACTIVO", tf: "TIMEFRAME DE VELA", exp: "EXPIRACIÓN", scan: "ESCANEAR MERCADO", auto: "IA LO HACE POR TI", pocket: "ABRIR POCKET OPTION", support: "DESARROLLADOR / SUPPORT", ready: "SISTEMA SINCRONIZADO", vip: "👑 SEÑALES VIP", mart: "MARTINGALA", profit: "Ganancia", loss: "Pérdida", reset: "REINICIAR ESTADÍSTICAS", up: "SUBIR", down: "BAJAR", enter: "ENTRADA EN: ", open: "¡OPERCION ABIERTA!", close: "CIERRE EN: ", end: "CICLO COMPLETADO" }},
+                es: {{ market: "CATEGORÍA DE MERCADO", type: "TIPO DE ACTIVOS", asset: "PAR ACTIVO", tf: "TIMEFRAME DE VELA", exp: "EXPIRACIÓN", scan: "ESCANEAR MERCADO", auto: "IA LO HACE POR TI", pocket: "ABRIR POCKET OPTION", support: "DESARROLLADOR / SUPPORT", ready: "SISTEMA SINCRONIZADO", vip: "👑 SEÑALES VIP", mart: "MARTINGALA", profit: "Ganancia", loss: "Pérdida", reset: "REINICIAR ESTADÍСТICAS", up: "SUBIR", down: "BAJAR", enter: "ENTRADA EN: ", open: "¡OPERCION ABIERTA!", close: "CIERRE EN: ", end: "CICLO COMPLETADO" }},
                 de: {{ market: "MARKTKATEGORIE", type: "PRODUKTTYP", asset: "AKTIVES PAAR", tf: "KERZEN ZEITRAHMEN", exp: "ABLAUFZEIT", scan: "MARKT SCANNEN", auto: "KI MACHT ES FÜR DICH", pocket: "POCKET OPTION ÖFFNEN", support: "ENTWICKLER / SUPPORT", ready: "SYSTEM SYNCHRONISIERT", vip: "👑 VIP SIGNALE", mart: "MARTINGALE", profit: "Gewinn", loss: "Verlust", reset: "STATISTIK ZURÜCKSETZEN", up: "HOCH", down: "RUNTER", enter: "EINSTIEG IN: ", open: "DEAL GEÖFFNET!", close: "RESTZEIT: ", end: "ZYKLUS BEENDET" }}
             }};
             
@@ -560,10 +564,9 @@ async def index():
                         succDiv.innerText = result.message;
                         succDiv.style.display = 'block';
                         
-                        // Сохраняем имя пользователя в localStorage!
+                        // Сохраняем имя только после 100% подтверждения сервером
                         localStorage.setItem('tg_username', userInp);
                         
-                        // Бесшовно переходим в систему
                         setTimeout(() => {{
                             checkAuth();
                         }}, 1000);
@@ -581,7 +584,7 @@ async def index():
                 }}
             }}
 
-            // Инициализация при открытии приложения
+            // Проверка авторизации при загрузке страницы
             checkAuth();
         </script>
     </body>
