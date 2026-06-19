@@ -12,7 +12,7 @@ app = FastAPI()
 
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
-BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"  # Твой новый токен бота вшит
+BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"  # Твой токен бота
 ADMIN_CHAT_ID = "6765689893"
 
 def get_db():
@@ -65,35 +65,31 @@ async def telegram_webhook(request: Request):
             chat_id = message["chat"]["id"]
             message_id = message["message_id"]
             
-            # Используем двоеточие для безопасного разделения параметров
+            # Разделяем полученные данные от кнопки
             parts = callback_data.split(":")
             if len(parts) < 3:
                 return {"status": "error", "message": "Invalid callback data configuration"}
                 
             action = parts[0]
-            username = parts[1]
-            code = parts[2]
+            # Жестко очищаем юзернейм для поиска в базе данных
+            username = parts[1].strip().replace("@", "").replace(" ", "")
+            code = parts[2].strip()
             
             db = get_db()
             new_status_text = ""
             
+            # Меняем статус в JSON базе данных
             if action == "block":
-                if username in db["users"]:
-                    db["users"][username]["status"] = "blocked"
-                else:
-                    db["users"][username] = {"status": "blocked", "used_code": code}
+                db["users"][username] = {"status": "blocked", "used_code": code}
                 save_db(db)
                 new_status_text = "❌ ЗАБЛОКИРОВАН"
                 
             elif action == "approve":
-                if username in db["users"]:
-                    db["users"][username]["status"] = "approved"
-                else:
-                    db["users"][username] = {"status": "approved", "used_code": code}
+                db["users"][username] = {"status": "approved", "used_code": code}
                 save_db(db)
                 new_status_text = "✅ ДОСТУП РАЗРЕШЕН"
             
-            # Обновляем текст сообщения, сохраняя обе кнопки активными для возможности перезаписи
+            # Пересобираем текст сообщения для админа
             new_text = f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** {new_status_text}"
             
             edit_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
@@ -112,6 +108,7 @@ async def telegram_webhook(request: Request):
                 }
             }
             
+            # Отправляем ответ Телеграму, чтобы кнопка перестала "думать" (убираем часики)
             answer_url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
             answer_payload = {"callback_query_id": callback_query["id"], "text": f"Статус изменен на: {new_status_text}"}
             
@@ -141,7 +138,7 @@ async def generate_key(master: str = None):
     <div style="background:#06080c; color:#ffffff; font-family:sans-serif; text-align:center; padding:50px; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;">
         <p style="color:#586988; font-size:18px; margin-bottom:5px;">Создан новый одноразовый ключ:</p>
         <div style="background:#0f131e; border:1px solid #1a2233; color:#00ff66; font-size:24px; font-weight:bold; padding:15px 30px; border-radius:12px; letter-spacing:1px; margin-bottom:20px;">
-            {new_key}
+            {{new_key}}
         </div>
         <p style="color:#4b5975; font-size:12px; max-width:300px; margin-bottom:20px;">Отдай его человеку. Как только он введет его на сайте, его устройство запомнится навсегда.</p>
         <a href="/generate_key?master=SUPER_ADMIN_123" style="text-decoration:none;">
@@ -158,7 +155,7 @@ async def admin_panel(secret: str = None):
     html = "<h1>Управление учениками</h1>"
     for user, info in db["users"].items():
         status = info.get("status")
-        html += f"<p><b>{user}</b> — Статус: {status} | <a href='/set_status?user={user}&status=approved&secret=SUPER_ADMIN_123'>ОДОБРИТЬ</a> | <a href='/set_status?user={user}&status=blocked&secret=SUPER_ADMIN_123'>ЗАБЛОКИРОВАТЬ</a></p>"
+        html += f"<p><b>{{user}}</b> — Статус: {{status}} | <a href='/set_status?user={{user}}&status=approved&secret=SUPER_ADMIN_123'>ОДОБРИТЬ</a> | <a href='/set_status?user={{user}}&status=blocked&secret=SUPER_ADMIN_123'>ЗАБЛОКИРОВАТЬ</a></p>"
     return HTMLResponse(html)
 
 @app.get("/set_status")
@@ -168,7 +165,7 @@ async def set_status(user: str, status: str, secret: str = None):
     if user in db["users"]:
         db["users"][user]["status"] = status
         save_db(db)
-    return HTMLResponse(f"Статус {user} изменен на {status}! <a href='/admin_panel?secret=SUPER_ADMIN_123'>Назад</a>")
+    return HTMLResponse(f"Статус {{user}} изменен на {{status}}! <a href='/admin_panel?secret=SUPER_ADMIN_123'>Назад</a>")
 
 # --- СТРОГАЯ ПРОВЕРКА СТАТУСА ДЛЯ ФРОНТЕНДА ---
 @app.get("/check_user_status")
