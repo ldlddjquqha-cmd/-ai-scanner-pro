@@ -13,7 +13,7 @@ app = FastAPI()
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
 BOT_TOKEN = "8905743098:AAFCqIHqY1PzaVM4hqISpvuBV4s2ka30bfs"
-ADMIN_CHAT_ID = "6177579122"  # Твой Telegram ID успешно вшит
+ADMIN_CHAT_ID = "6765689893"  # Твой Telegram ID успешно вшит
 
 def get_db():
     if not os.path.exists(DB_FILE): 
