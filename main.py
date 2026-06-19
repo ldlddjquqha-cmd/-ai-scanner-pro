@@ -6,14 +6,14 @@ import numpy as np
 import os
 import uvicorn
 from fastapi import FastAPI, Form, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI()
 
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
 BOT_TOKEN = "8905743098:AAHS3eozt39qyO3Hjiy4GSapT1VlOmPFZW4"
-ADMIN_CHAT_ID = "ТВОЙ_ID_В_ТЕЛЕГРАМ"  # ОБЯЗАТЕЛЬНО: впиши сюда свой числовой ID из Telegram (узнать можно в @userinfobot)
+ADMIN_CHAT_ID = "ТВОЙ_ID_В_ТЕЛЕГРАМ"  # ОБЯЗАТЕЛЬНО: впиши сюда свой числовой ID из Telegram (через @userinfobot)
 
 def get_db():
     if not os.path.exists(DB_FILE): 
@@ -30,12 +30,12 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
-# Функция отправки красивого уведомления в твой Telegram-бот
+# Фоновая отправка уведомления в Telegram (чтобы сайт не зависал)
 async def send_tg_notification(username, code):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": ADMIN_CHAT_ID,
-        "text": f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n\nУправляй доступом с помощью кнопок ниже:",
+        "text": f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n\nУправляй доступом с помощью кнопкой ниже:",
         "parse_mode": "Markdown",
         "reply_markup": {
             "inline_keyboard": [
@@ -48,9 +48,9 @@ async def send_tg_notification(username, code):
     }
     async with httpx.AsyncClient() as client:
         try:
-            await client.post(url, json=payload)
+            await client.post(url, json=payload, timeout=5.0)
         except Exception as e:
-            print(f"Ошибка отправки уведомления в Telegram: {e}")
+            print(f"Ошибка отправки в ТГ: {e}")
 
 # --- СТРАНИЦА ГЕНЕРАЦИИ ОДНОРАЗОВЫХ КЛЮЧЕЙ ---
 @app.get("/generate_key")
@@ -58,7 +58,6 @@ async def generate_key(master: str = None):
     if master != "SUPER_ADMIN_123": 
         return HTMLResponse("<h1 style='color:red; text-align:center;'>Доступ запрещен</h1>")
     
-    # Генерируем уникальный случайный ключ в твоем формате HROM_XXXXXX
     chars = "0123456789ABCDEF"
     new_key = "HROM_" + "".join(random.choice(chars) for _ in range(6))
     
@@ -99,42 +98,36 @@ async def set_status(user: str, status: str, secret: str = None):
         save_db(db)
     return HTMLResponse(f"Статус {user} изменен на {status}! <a href='/admin_panel?secret=SUPER_ADMIN_123'>Назад</a>")
 
-# --- ЛОГИКА ПРОВЕРКИ И АКТИВАЦИИ ОДНОРАЗОВОГО КОДА ---
+# --- ИСПРАВЛЕННАЯ АСИНХРОННАЯ ЛОГИКА АКТИВАЦИИ ---
 @app.post("/request_access")
 async def request_access(response: Response, username: str = Form(...), code: str = Form(...)):
-    username = username.strip().replace("@", "")
-    code = code.strip()
+    username = username.strip().replace("@", "").replace(" ", "")
+    code = code.strip().replace(" ", "")
     db = get_db()
     
-    # Проверяем, есть ли такой одноразовый код в базе неиспользованных
+    # Проверяем, если пользователь уже был одобрен ранее — пускаем его по кукам
+    if username in db["users"] and db["users"][username]["status"] == "approved":
+        response.set_cookie(key="tg_username", value=username, max_age=31536000)
+        return JSONResponse({"success": True, "message": "Доступ уже подтвержден! Заходим..."})
+
+    # Проверка одноразового кода
     if code not in db["keys"]:
-        # Если юзер уже активирован ранее, даем зайти
-        if username in db["users"] and db["users"][username]["status"] == "approved":
-            response.set_cookie(key="tg_username", value=username, max_age=31536000)
-            return HTMLResponse("<script>window.location.href='/';</script>")
-        return HTMLResponse(f"""
-        <div style="background:#06080c; color:white; font-family:sans-serif; text-align:center; padding:50px; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;">
-            <h2 style="color:#ff3344;">Ошибка: Неверный или уже использованный код!</h2>
-            <p>Убедитесь в правильности ввода или получите новый код у @andriddddd.</p>
-            <a href="/" style="color:#963bfe; font-weight:bold; text-decoration:none; margin-top:20px;">Попробовать снова</a>
-        </div>
-        """)
+        return JSONResponse({"success": False, "message": "Неверный или использованный код!"})
     
-    # Если код верный: удаляем его из списка одноразовых, чтобы никто больше не вошел
+    # Удаляем использованный код из базы свободных
     db["keys"].remove(code)
     
-    # Сохраняем пользователя со статусом approved (чтобы сразу пользовался сигналами)
+    # Сразу ставим статус approved, чтобы человек мгновенно зашел
     db["users"][username] = {"status": "approved", "used_code": code}
     save_db(db)
     
-    # Отправляем мгновенное уведомление админу в телеграм с кнопками управления
-    await send_tg_notification(username, code)
+    # Запускаем отправку в ТГ асинхронно как задачу, чтобы не тормозить ответ пользователю
+    asyncio.create_task(send_tg_notification(username, code))
     
-    # Ставим долговечные куки, чтобы устройство запомнило навсегда (на 1 год)
+    # Ставим куку навсегда (на 1 год), чтобы устройство запомнилось
     response.set_cookie(key="tg_username", value=username, max_age=31536000)
     
-    # Перенаправляем на главную, где уже будут открыты сигналы
-    return HTMLResponse("<script>window.location.href='/';</script>")
+    return JSONResponse({"success": True, "message": "Код успешно активирован! Загрузка..."})
 
 # --- ОСТАЛЬНОЙ ТВОЙ КОД И ИНДИКАТОРЫ ---
 POCKET_API_TOKEN = "Avqw-qRFXfnAsn88w"
@@ -261,14 +254,14 @@ async def get_signal(asset: str, timeframe: str):
     else: signal, accuracy = ("UP" if curr > ema else "DOWN"), round(60.0 + random.uniform(0, 3), 1)
     return {"signal": signal, "payout": get_pocket_payout(asset), "accuracy": accuracy, "outcome": "WIN", "session_verified": True}
 
-# --- ГЛАВНАЯ СТРАНИЦА И ОКНО ВХОДА ---
+# --- ГЛАВНАЯ СТРАНИЦА И ИСПРАВЛЕННОЕ ОКНО ВХОДА ---
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     username = request.cookies.get("tg_username")
     db = get_db()
     status = db["users"].get(username, {}).get("status") if username else None
 
-    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ОДОБРЕН — ПОКАЗЫВАЕМ СИГНАЛЫ ТОРГОВЛИ
+    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ОДОБРЕН — ПОКАЗЫВАЕМ ТОРГОВЫЙ ИНТЕРФЕЙС
     if status == "approved":
         return rf"""
         <html style="background:#06080c; color:#ffffff; font-family:'Segoe UI', Roboto, sans-serif; margin:0; padding:0;">
@@ -449,7 +442,7 @@ async def index(request: Request):
         </html>
         """
 
-    # ОКНО ВХОДА (КРАСИВАЯ СТИЛИЗАЦИЯ ИМЕННО ПОД ТВОЙ СКРИНШОТ ИЗ ТЕЛЕФОНА)
+    # ОКНО ВХОДА С ИСПРАВЛЕННЫМ AJAX-ОТПРАВИТЕЛЕМ (БЕЗ СБРОСА ДАННЫХ)
     if status == "blocked":
         return HTMLResponse("<div style='background:#06080c; color:#ff3344; font-family:sans-serif; text-align:center; padding-top:100px; height:100vh;'><h1>Доступ заблокирован администратором.</h1></div>")
 
@@ -466,7 +459,9 @@ async def index(request: Request):
             input {{ background: transparent; border: none; color: white; width: 100%; font-size: 14px; font-weight: bold; outline: none; text-align: center; }}
             input::placeholder {{ color: #4b5975; }}
             .btn-activate {{ width: 100%; max-width: 320px; padding: 16px; background: linear-gradient(135deg, #963bfe 0%, #641bfa 100%); border: none; color: white; font-weight: 800; border-radius: 14px; cursor: pointer; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; box-shadow: 0 5px 20px rgba(100,27,250,0.4); transition: transform 0.2s; }}
-            .btn-activate:active {{ transform: scale(0.98); }}
+            .btn-activate:disabled {{ background: #1a2233; color: #4b5975; cursor: not-allowed; box-shadow: none; }}
+            #error-msg {{ color: #ff3344; font-size: 13px; font-weight: bold; margin-top: 15px; text-align: center; display: none; }}
+            #success-msg {{ color: #00ff66; font-size: 13px; font-weight: bold; margin-top: 15px; text-align: center; display: none; }}
         </style>
     </head>
     <body>
@@ -474,16 +469,72 @@ async def index(request: Request):
             <div class="title">HROM QUANTUM CORE</div>
             <div class="subtitle">Для доступа к сигналам введите ваш уникальный код</div>
             
-            <form action="/request_access" method="post" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+            <div style="width: 100%; display: flex; flex-direction: column; align-items: center;">
                 <div class="input-box">
-                    <input type="text" name="username" placeholder="Введите ваш @username в ТГ" required>
+                    <input type="text" id="username" placeholder="Введите ваш @username в ТГ" required>
                 </div>
                 <div class="input-box">
-                    <input type="text" name="code" placeholder="Введите код доступа" required>
+                    <input type="text" id="code" placeholder="Введите код доступа" required>
                 </div>
-                <button type="submit" class="btn-activate">Активировать доступ</button>
-            </form>
+                <button type="button" id="submitBtn" class="btn-activate" onclick="sendForm()">Активировать доступ</button>
+                
+                <div id="error-msg"></div>
+                <div id="success-msg"></div>
+            </div>
         </div>
+
+        <script>
+            async function sendForm() {{
+                const userInp = document.getElementById('username').value.trim();
+                const codeInp = document.getElementById('code').value.trim();
+                const btn = document.getElementById('submitBtn');
+                const errDiv = document.getElementById('error-msg');
+                const succDiv = document.getElementById('success-msg');
+
+                errDiv.style.display = 'none';
+                succDiv.style.display = 'none';
+
+                if(!userInp || !codeInp) {{
+                    errDiv.innerText = "Заполните все поля!";
+                    errDiv.style.display = 'block';
+                    return;
+                }}
+
+                btn.disabled = true;
+                btn.innerText = "Проверка кода...";
+
+                try {{
+                    const formData = new FormData();
+                    formData.append('username', userInp);
+                    formData.append('code', codeInp);
+
+                    const response = await fetch('/request_access', {{
+                        method: 'POST',
+                        body: formData
+                    }});
+
+                    const result = await response.json();
+
+                    if(result.success) {{
+                        succDiv.innerText = result.message;
+                        succDiv.style.display = 'block';
+                        setTimeout(() => {{
+                            window.location.reload();
+                        }}, 1000);
+                    }} else {{
+                        errDiv.innerText = result.message;
+                        errDiv.style.display = 'block';
+                        btn.disabled = false;
+                        btn.innerText = "Активировать доступ";
+                    }}
+                }} catch(e) {{
+                    errDiv.innerText = "Ошибка соединения с сервером.";
+                    errDiv.style.display = 'block';
+                    btn.disabled = false;
+                    btn.innerText = "Активировать доступ";
+                }}
+            }}
+        </script>
     </body>
     </html>
     """
