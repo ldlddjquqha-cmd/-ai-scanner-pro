@@ -13,7 +13,7 @@ app = FastAPI()
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
 BOT_TOKEN = "8905743098:AAFCqIHqY1PzaVM4hqISpvuBV4s2ka30bfs"
-ADMIN_CHAT_ID = "6765689893"  # Твой Telegram ID успешно вшит
+ADMIN_CHAT_ID = "6765689893"  # Твой новый Telegram ID успешно вшит
 
 def get_db():
     if not os.path.exists(DB_FILE): 
@@ -40,7 +40,8 @@ async def send_tg_notification(username, code):
         "reply_markup": {
             "inline_keyboard": [
                 [
-                    {"text": "❌ Заблокировать", "callback_data": f"block_{username}_{code}"}
+                    {"text": "❌ Забанить", "callback_data": f"block_{username}_{code}"},
+                    {"text": "✅ Разблокировать", "callback_data": f"approve_{username}_{code}"}
                 ]
             ]
         }
@@ -57,7 +58,6 @@ async def telegram_webhook(request: Request):
     try:
         data = await request.json()
         
-        # Проверяем, является ли событие нажатием на инлайн-кнопку
         if "callback_query" in data:
             callback_query = data["callback_query"]
             callback_data = callback_query["data"]
@@ -77,41 +77,35 @@ async def telegram_webhook(request: Request):
                 if username in db["users"]:
                     db["users"][username]["status"] = "blocked"
                     save_db(db)
-                
-                # Обновляем сообщение в ТГ: меняем текст и кнопку на "Разблокировать"
-                new_text = f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** ❌ ЗАБЛОКИРОВАН"
-                reply_markup = {
-                    "inline_keyboard": [
-                        [{"text": "✅ Разблокировать", "callback_data": f"approve_{username}_{code}"}]
-                    ]
-                }
+                new_status_text = "❌ ЗАБЛОКИРОВАН"
                 
             elif action == "approve":
                 if username in db["users"]:
                     db["users"][username]["status"] = "approved"
                     save_db(db)
-                
-                # Обновляем сообщение в ТГ: меняем текст и кнопку обратно на "Заблокировать"
-                new_text = f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** ✅ Доступ разрешен"
-                reply_markup = {
-                    "inline_keyboard": [
-                        [{"text": "❌ Заблокировать", "callback_data": f"block_{username}_{code}"}]
-                    ]
-                }
+                new_status_text = "✅ ДОСТУП РАЗРЕШЕН"
             
-            # Отправляем запрос в Telegram для редактирования сообщения
+            # Обновляем текст сообщения, сохраняя обе кнопки активными
+            new_text = f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** {new_status_text}"
+            
             edit_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
             edit_payload = {
                 "chat_id": chat_id,
                 "message_id": message_id,
                 "text": new_text,
                 "parse_mode": "Markdown",
-                "reply_markup": reply_markup
+                "reply_markup": {
+                    "inline_keyboard": [
+                        [
+                            {"text": "❌ Забанить", "callback_data": f"block_{username}_{code}"},
+                            {"text": "✅ Разблокировать", "callback_data": f"approve_{username}_{code}"}
+                        ]
+                    ]
+                }
             }
             
-            # Подтверждаем Telegram, что кнопка обработана (чтобы она не «зависала» с часиками)
             answer_url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
-            answer_payload = {"callback_query_id": callback_query["id"], "text": "Статус успешно обновлен!"}
+            answer_payload = {"callback_query_id": callback_query["id"], "text": f"Статус изменен на: {new_status_text}"}
             
             async with httpx.AsyncClient() as client:
                 await client.post(edit_url, json=edit_payload, timeout=5.0)
