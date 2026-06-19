@@ -12,8 +12,6 @@ app = FastAPI()
 
 # --- СИСТЕМА ДОСТУПА ---
 DB_FILE = "requests.json"
-# Список одноразовых кодов для активации
-VALID_CODES = ["HROM2026", "QUANTUM1", "ACCESS777", "SECRET99"]
 
 def get_db():
     if not os.path.exists(DB_FILE): return {}
@@ -45,21 +43,17 @@ async def set_status(user: str, status: str, secret: str = None):
         save_db(db)
     return HTMLResponse(f"Статус {user} изменен на {status}! <a href='/admin_panel?secret=SUPER_ADMIN_123'>Назад</a>")
 
-# --- ЛОГИКА ВХОДА И АКТИВАЦИИ ---
+# --- ЛОГИКА ВХОДА ---
 @app.post("/request_access")
-async def request_access(response: Response, username: str = Form(...), code: str = Form(...)):
+async def request_access(response: Response, username: str = Form(...)):
     db = get_db()
-    if code in VALID_CODES:
-        db[username] = {"status": "approved"}
-        save_db(db)
-        response.set_cookie(key="tg_username", value=username, max_age=315360000)
-        return HTMLResponse("Доступ активирован! <br><a href='/'>Перейти в панель</a>")
-    else:
-        db[username] = {"status": "pending"}
-        save_db(db)
-        return HTMLResponse("Неверный код. Запрос на ручное одобрение отправлен. <br><a href='/'>Назад</a>")
+    db[username] = {"status": "pending"}
+    save_db(db)
+    # Сохраняем пользователя в куки на 10 лет
+    response.set_cookie(key="tg_username", value=username, max_age=315360000)
+    return HTMLResponse("Запрос отправлен. Ожидайте одобрения от @andriddddd. <br><a href='/'>Назад</a>")
 
-# --- КОНФИГУРАЦИЯ ---
+# --- ОСТАЛЬНОЙ КОД ---
 POCKET_API_TOKEN = "Avqw-qRFXfnAsn88w"
 
 BINANCE_MAPPING = {
@@ -371,12 +365,11 @@ async def index(request: Request):
         """
     return f"""
     <div style="text-align:center; padding:50px; color:white; font-family:sans-serif; background:#06080c; height:100vh;">
-        <h1>HROM QUANTUM: Активация</h1>
-        <p>Введите ваш Telegram Username и код активации</p>
+        <h1>HROM QUANTUM: Доступ ограничен</h1>
+        <p>Введите ваш Telegram Username чтобы отправить запрос на доступ</p>
         <form action="/request_access" method="post">
-            <input type="text" name="username" placeholder="Ваш @username" required style="padding:10px; border-radius:10px; border:none; display:block; margin: 10px auto;"><br>
-            <input type="text" name="code" placeholder="Код активации" required style="padding:10px; border-radius:10px; border:none; display:block; margin: 0 auto 10px auto;"><br>
-            <button type="submit" style="padding:10px 20px; cursor:pointer; background:#963bfe; color:white; border:none; border-radius:10px;">ВОЙТИ</button>
+            <input type="text" name="username" placeholder="Ваш @username" required style="padding:10px; border-radius:10px; border:none;">
+            <button type="submit" style="padding:10px; cursor:pointer; background:#963bfe; color:white; border:none; border-radius:10px;">Отправить запрос</button>
         </form>
     </div>
     """
