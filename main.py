@@ -13,7 +13,7 @@ app = FastAPI()
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
 BOT_TOKEN = "8905743098:AAFCqIHqY1PzaVM4hqISpvuBV4s2ka30bfs"
-ADMIN_CHAT_ID = "6765689893"  # Сюда впиши свой числовой ID из Telegram (например, 123456789)
+ADMIN_CHAT_ID = "6177579122"  # Твой Telegram ID успешно вшит
 
 def get_db():
     if not os.path.exists(DB_FILE): 
@@ -30,21 +30,17 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
-# Фоновая отправка уведомления в Telegram (срабатывает мгновенно)
+# Фоновая отправка уведомления в Telegram при входе
 async def send_tg_notification(username, code):
-    if ADMIN_CHAT_ID == "0":
-        print("Внимание: Не указан ADMIN_CHAT_ID! Уведомление не отправлено.")
-        return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": ADMIN_CHAT_ID,
-        "text": f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n\nУправляй доступом с помощью кнопок в админ-панели.",
+        "text": f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** ✅ Доступ разрешен",
         "parse_mode": "Markdown",
         "reply_markup": {
             "inline_keyboard": [
                 [
-                    {"text": "❌ Заблокировать", "callback_data": f"block_{username}"},
-                    {"text": "✅ Разблокировать", "callback_data": f"approve_{username}"}
+                    {"text": "❌ Заблокировать", "callback_data": f"block_{username}_{code}"}
                 ]
             ]
         }
@@ -54,6 +50,77 @@ async def send_tg_notification(username, code):
             await client.post(url, json=payload, timeout=5.0)
         except Exception as e:
             print(f"Ошибка отправки в ТГ: {e}")
+
+# --- ОБРАБОТЧИК НАЖАТИЙ НА КНОПКИ В TELEGRAM (WEBHOOK) ---
+@app.post("/telegram_webhook")
+async def telegram_webhook(request: Request):
+    try:
+        data = await request.json()
+        
+        # Проверяем, является ли событие нажатием на инлайн-кнопку
+        if "callback_query" in data:
+            callback_query = data["callback_query"]
+            callback_data = callback_query["data"]
+            message = callback_query["message"]
+            chat_id = message["chat"]["id"]
+            message_id = message["message_id"]
+            
+            # Разбираем callback_data (формат: действие_юзернейм_код)
+            parts = callback_data.split("_")
+            action = parts[0]
+            username = parts[1]
+            code = parts[2] if len(parts) > 2 else ""
+            
+            db = get_db()
+            
+            if action == "block":
+                if username in db["users"]:
+                    db["users"][username]["status"] = "blocked"
+                    save_db(db)
+                
+                # Обновляем сообщение в ТГ: меняем текст и кнопку на "Разблокировать"
+                new_text = f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** ❌ ЗАБЛОКИРОВАН"
+                reply_markup = {
+                    "inline_keyboard": [
+                        [{"text": "✅ Разблокировать", "callback_data": f"approve_{username}_{code}"}]
+                    ]
+                }
+                
+            elif action == "approve":
+                if username in db["users"]:
+                    db["users"][username]["status"] = "approved"
+                    save_db(db)
+                
+                # Обновляем сообщение в ТГ: меняем текст и кнопку обратно на "Заблокировать"
+                new_text = f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** ✅ Доступ разрешен"
+                reply_markup = {
+                    "inline_keyboard": [
+                        [{"text": "❌ Заблокировать", "callback_data": f"block_{username}_{code}"}]
+                    ]
+                }
+            
+            # Отправляем запрос в Telegram для редактирования сообщения
+            edit_url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+            edit_payload = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": new_text,
+                "parse_mode": "Markdown",
+                "reply_markup": reply_markup
+            }
+            
+            # Подтверждаем Telegram, что кнопка обработана (чтобы она не «зависала» с часиками)
+            answer_url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+            answer_payload = {"callback_query_id": callback_query["id"], "text": "Статус успешно обновлен!"}
+            
+            async with httpx.AsyncClient() as client:
+                await client.post(edit_url, json=edit_payload, timeout=5.0)
+                await client.post(answer_url, json=answer_payload, timeout=5.0)
+                
+    except Exception as e:
+        print(f"Ошибка вебхука ТГ: {e}")
+        
+    return {"status": "ok"}
 
 # --- СТРАНИЦА ГЕНЕРАЦИИ ОДНОРАЗОВЫХ КЛЮЧЕЙ ---
 @app.get("/generate_key")
@@ -81,7 +148,7 @@ async def generate_key(master: str = None):
     </div>
     """)
 
-# --- АДМИН-ПАНЕЛЬ СУПЕР-АДМИНА ---
+# --- АДМИН-ПАНЕЛЬ СУПЕР-АДМИНА (РЕЗЕРВНАЯ WEB-ВЕРСИЯ) ---
 @app.get("/admin_panel")
 async def admin_panel(secret: str = None):
     if secret != "SUPER_ADMIN_123": return "Доступ запрещен"
@@ -106,7 +173,6 @@ async def set_status(user: str, status: str, secret: str = None):
 async def check_user_status(username: str = ""):
     username = username.strip().replace("@", "").replace(" ", "")
     db = get_db()
-    # Проверяем, есть ли пользователь в базе и какой у него статус
     status = db["users"].get(username, {}).get("status") if username else None
     return JSONResponse({"status": status})
 
@@ -117,20 +183,16 @@ async def request_access(username: str = Form(...), code: str = Form(...)):
     code = code.strip().replace(" ", "")
     db = get_db()
     
-    # Если пользователь уже активирован ранее
     if username in db["users"] and db["users"][username]["status"] == "approved":
         return JSONResponse({"success": True, "message": "Доступ уже подтвержден! Заходим..."})
 
-    # СТРОГАЯ ПРОВЕРКА: Если введенного кода нет в списке доступных ключей
     if code not in db["keys"]:
         return JSONResponse({"success": False, "message": "Неверный или уже использованный код!"})
     
-    # Если код верный: удаляем его из одноразовых и добавляем пользователя в одобренные
     db["keys"].remove(code)
     db["users"][username] = {"status": "approved", "used_code": code}
     save_db(db)
     
-    # Моментально отправляем уведомление в Telegram бот
     asyncio.create_task(send_tg_notification(username, code))
     
     return JSONResponse({"success": True, "message": "Код успешно активирован! Загрузка..."})
@@ -260,7 +322,7 @@ async def get_signal(asset: str, timeframe: str):
     else: signal, accuracy = ("UP" if curr > ema else "DOWN"), round(60.0 + random.uniform(0, 3), 1)
     return {"signal": signal, "payout": get_pocket_payout(asset), "accuracy": accuracy, "outcome": "WIN", "session_verified": True}
 
-# --- ГЛАВНАЯ СТРАНИЦА И ИСПРАВЛЕННЫЙ ИНТЕРФЕЙС ---
+# --- ГЛАВНАЯ СТРАНИЦА И ИНТЕРФЕЙС ТЕРМИНАЛА ---
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return rf"""
@@ -382,7 +444,6 @@ async def index():
             
             let wins = 0, losses = 0, currentBet = 100, martStep = 0, currentInterval = null, currentExpInterval = null;
 
-            // Настоящая верификация пользователя на бэкенде
             async function checkAuth() {{
                 const localUser = localStorage.getItem('tg_username');
                 if (!localUser) {{
@@ -393,14 +454,12 @@ async def index():
                     const response = await fetch('/check_user_status?username=' + encodeURIComponent(localUser));
                     const data = await response.json();
                     
-                    // Пускаем ТОЛЬКО если бэкенд явно ответил 'approved'
                     if (data.status === 'approved') {{
                         showScreen('terminal-screen');
                         changeLang();
                     }} else if (data.status === 'blocked') {{
                         showScreen('blocked-screen');
                     }} else {{
-                        // Если в базе его нет или статус пустой — сбрасываем вход
                         localStorage.removeItem('tg_username');
                         showScreen('auth-screen');
                     }}
@@ -563,10 +622,7 @@ async def index():
                     if(result.success) {{
                         succDiv.innerText = result.message;
                         succDiv.style.display = 'block';
-                        
-                        // Сохраняем имя только после 100% подтверждения сервером
                         localStorage.setItem('tg_username', userInp);
-                        
                         setTimeout(() => {{
                             checkAuth();
                         }}, 1000);
@@ -584,7 +640,6 @@ async def index():
                 }}
             }}
 
-            // Проверка авторизации при загрузке страницы
             checkAuth();
         </script>
     </body>
