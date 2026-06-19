@@ -13,7 +13,7 @@ app = FastAPI()
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
 BOT_TOKEN = "8905743098:AAHS3eozt39qyO3Hjiy4GSapT1VlOmPFZW4"
-ADMIN_CHAT_ID = "ТВОЙ_ID_В_ТЕЛЕГРАМ"  # ОБЯЗАТЕЛЬНО: впиши сюда свой числовой ID из Telegram (через @userinfobot)
+ADMIN_CHAT_ID = "0"  # Сюда впиши свой числовой ID из Telegram (например, 123456789)
 
 def get_db():
     if not os.path.exists(DB_FILE): 
@@ -32,10 +32,13 @@ def save_db(data):
 
 # Фоновая отправка уведомления в Telegram (чтобы сайт не зависал)
 async def send_tg_notification(username, code):
+    if ADMIN_CHAT_ID == "0":
+        print("Внимание: Не указан ADMIN_CHAT_ID!")
+        return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": ADMIN_CHAT_ID,
-        "text": f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n\nУправляй доступом с помощью кнопкой ниже:",
+        "text": f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n\nУправляй доступом с помощью кнопок в админ-панели.",
         "parse_mode": "Markdown",
         "reply_markup": {
             "inline_keyboard": [
@@ -98,33 +101,25 @@ async def set_status(user: str, status: str, secret: str = None):
         save_db(db)
     return HTMLResponse(f"Статус {user} изменен на {status}! <a href='/admin_panel?secret=SUPER_ADMIN_123'>Назад</a>")
 
-# --- ИСПРАВЛЕННАЯ АСИНХРОННАЯ ЛОГИКА АКТИВАЦИИ ---
+# --- ИСПРАВЛЕННАЯ ЛОГИКА АКТИВАЦИИ ---
 @app.post("/request_access")
 async def request_access(response: Response, username: str = Form(...), code: str = Form(...)):
     username = username.strip().replace("@", "").replace(" ", "")
     code = code.strip().replace(" ", "")
     db = get_db()
     
-    # Проверяем, если пользователь уже был одобрен ранее — пускаем его по кукам
     if username in db["users"] and db["users"][username]["status"] == "approved":
         response.set_cookie(key="tg_username", value=username, max_age=31536000)
         return JSONResponse({"success": True, "message": "Доступ уже подтвержден! Заходим..."})
 
-    # Проверка одноразового кода
     if code not in db["keys"]:
         return JSONResponse({"success": False, "message": "Неверный или использованный код!"})
     
-    # Удаляем использованный код из базы свободных
     db["keys"].remove(code)
-    
-    # Сразу ставим статус approved, чтобы человек мгновенно зашел
     db["users"][username] = {"status": "approved", "used_code": code}
     save_db(db)
     
-    # Запускаем отправку в ТГ асинхронно как задачу, чтобы не тормозить ответ пользователю
     asyncio.create_task(send_tg_notification(username, code))
-    
-    # Ставим куку навсегда (на 1 год), чтобы устройство запомнилось
     response.set_cookie(key="tg_username", value=username, max_age=31536000)
     
     return JSONResponse({"success": True, "message": "Код успешно активирован! Загрузка..."})
@@ -261,7 +256,7 @@ async def index(request: Request):
     db = get_db()
     status = db["users"].get(username, {}).get("status") if username else None
 
-    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ОДОБРЕН — ПОКАЗЫВАЕМ ТОРГОВЫЙ ИНТЕРФЕЙС
+    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ОДОБРЕН
     if status == "approved":
         return rf"""
         <html style="background:#06080c; color:#ffffff; font-family:'Segoe UI', Roboto, sans-serif; margin:0; padding:0;">
@@ -442,7 +437,7 @@ async def index(request: Request):
         </html>
         """
 
-    # ОКНО ВХОДА С ИСПРАВЛЕННЫМ AJAX-ОТПРАВИТЕЛЕМ (БЕЗ СБРОСА ДАННЫХ)
+    # ОКНО ВХОДА (ТЕГ FORM ПОЛНОСТЬЮ УБРАН ВО ИЗБЕЖАНИЕ СБРОСОВ И ПЕРЕЗАГРУЗОК)
     if status == "blocked":
         return HTMLResponse("<div style='background:#06080c; color:#ff3344; font-family:sans-serif; text-align:center; padding-top:100px; height:100vh;'><h1>Доступ заблокирован администратором.</h1></div>")
 
@@ -471,10 +466,10 @@ async def index(request: Request):
             
             <div style="width: 100%; display: flex; flex-direction: column; align-items: center;">
                 <div class="input-box">
-                    <input type="text" id="username" placeholder="Введите ваш @username в ТГ" required>
+                    <input type="text" id="username" placeholder="Введите ваш @username в ТГ">
                 </div>
                 <div class="input-box">
-                    <input type="text" id="code" placeholder="Введите код доступа" required>
+                    <input type="text" id="code" placeholder="Введите код доступа">
                 </div>
                 <button type="button" id="submitBtn" class="btn-activate" onclick="sendForm()">Активировать доступ</button>
                 
@@ -513,6 +508,10 @@ async def index(request: Request):
                         body: formData
                     }});
 
+                    if (!response.ok) {{
+                        throw new Error("Сервер вернул ошибку " + response.status);
+                    }}
+
                     const result = await response.json();
 
                     if(result.success) {{
@@ -528,7 +527,7 @@ async def index(request: Request):
                         btn.innerText = "Активировать доступ";
                     }}
                 }} catch(e) {{
-                    errDiv.innerText = "Ошибка соединения с сервером.";
+                    errDiv.innerText = "Ошибка: " + e.message;
                     errDiv.style.display = 'block';
                     btn.disabled = false;
                     btn.innerText = "Активировать доступ";
