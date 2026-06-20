@@ -60,25 +60,22 @@ async def telegram_webhook(request: Request):
             text = data["message"]["text"]
             chat_id = str(data["message"]["chat"]["id"])
             
-            if chat_id == ADMIN_CHAT_ID:
-                parts = text.split()
-                if len(parts) >= 2:
-                    command = parts[0]
-                    username = parts[1].replace("@", "").strip()
-                    db = get_db()
-                    
-                    if username in db["users"]:
-                        if command == "/бан":
-                            db["users"][username]["status"] = "blocked"
-                            save_db(db)
-                            await send_tg_notification_simple(f"🚫 Пользователь @{username} заблокирован.")
-                        
-                        elif command == "/разбанить":
-                            db["users"][username]["status"] = "approved"
-                            save_db(db)
-                            await send_tg_notification_simple(f"✅ Пользователь @{username} разбанен.")
-                    else:
-                        await send_tg_notification_simple(f"⚠️ Пользователь @{username} не найден в базе.")
+            
+                     if command == "/бан":
+            db["users"][username]["status"] = "blocked"
+            save_db(db)
+            await send_tg_notification_simple(f"🚫 Пользователь @{username} заблокирован.")
+        
+        elif command == "/разбанить":
+            db["users"][username]["status"] = "approved"
+            save_db(db)
+            await send_tg_notification_simple(f"✅ Пользователь @{username} разбанен.")
+        else:
+            await send_tg_notification_simple(f"⚠️ Пользователь @{username} не найден в базе.")
+
+    except Exception as e:
+        print(f"Ошибка вебхука ТГ: {e}")
+           await send_tg_notification_simple(f"⚠️ Пользователь @{username} не найден в базе.")
                 
     except Exception as e:
         print(f"Ошибка вебхука ТГ: {e}")
