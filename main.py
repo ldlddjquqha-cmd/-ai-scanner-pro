@@ -13,7 +13,7 @@ app = FastAPI()
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
 BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"
-ADMIN_CHAT_ID = "6177579122"
+ADMIN_CHAT_ID = "6765689893"
 
 def get_db():
     if not os.path.exists(DB_FILE): 
