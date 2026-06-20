@@ -13,7 +13,7 @@ app = FastAPI()
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
 BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"
-ADMIN_CHAT_ID = "6765689893"
+ADMIN_CHAT_ID = "6177579122"
 
 def get_db():
     if not os.path.exists(DB_FILE): 
@@ -65,17 +65,18 @@ async def telegram_webhook(request: Request):
                     username = parts[1].replace("@", "").strip()
                     db = get_db()
                     
-                    if command == "/бан":
-                        if username in db["users"]:
+                    if username in db["users"]:
+                        if command == "/бан":
                             db["users"][username]["status"] = "blocked"
                             save_db(db)
                             await send_tg_notification_simple(f"🚫 Пользователь @{username} заблокирован.")
-                    
-                    elif command == "/разбанить":
-                        if username in db["users"]:
+                        
+                        elif command == "/разбанить":
                             db["users"][username]["status"] = "approved"
                             save_db(db)
                             await send_tg_notification_simple(f"✅ Пользователь @{username} разблокирован.")
+                    else:
+                        await send_tg_notification_simple(f"⚠️ Пользователь @{username} не найден в базе данных.")
                 
     except Exception as e:
         print(f"Ошибка вебхука ТГ: {e}")
