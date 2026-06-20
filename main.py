@@ -13,7 +13,7 @@ app = FastAPI()
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
 BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"
-ADMIN_CHAT_ID = "6765689893"
+ADMIN_CHAT_ID = "6765689893" # ОБНОВЛЕНО
 
 def get_db():
     if not os.path.exists(DB_FILE): 
@@ -54,6 +54,8 @@ async def send_tg_notification_simple(text):
 async def telegram_webhook(request: Request):
     try:
         data = await request.json()
+        print(f"DEBUG: Получен запрос: {data}")
+        
         if "message" in data and "text" in data["message"]:
             text = data["message"]["text"]
             chat_id = str(data["message"]["chat"]["id"])
@@ -74,9 +76,9 @@ async def telegram_webhook(request: Request):
                         elif command == "/разбанить":
                             db["users"][username]["status"] = "approved"
                             save_db(db)
-                            await send_tg_notification_simple(f"✅ Пользователь @{username} разблокирован.")
+                            await send_tg_notification_simple(f"✅ Пользователь @{username} разбанен.")
                     else:
-                        await send_tg_notification_simple(f"⚠️ Пользователь @{username} не найден в базе данных.")
+                        await send_tg_notification_simple(f"⚠️ Пользователь @{username} не найден в базе.")
                 
     except Exception as e:
         print(f"Ошибка вебхука ТГ: {e}")
@@ -102,7 +104,6 @@ async def generate_key(master: str = None):
         <div style="background:#0f131e; border:1px solid #1a2233; color:#00ff66; font-size:24px; font-weight:bold; padding:15px 30px; border-radius:12px; letter-spacing:1px; margin-bottom:20px;">
             {new_key}
         </div>
-        <p style="color:#4b5975; font-size:12px; max-width:300px; margin-bottom:20px;">Отдай его человеку. Как только он введет его на сайте, его устройство запомнится навсегда.</p>
         <a href="/generate_key?master=SUPER_ADMIN_123" style="text-decoration:none;">
             <button style="background:#963bfe; color:white; font-weight:bold; padding:12px 24px; border:none; border-radius:10px; cursor:pointer;">Создать еще один</button>
         </a>
@@ -145,7 +146,7 @@ async def request_access(username: str = Form(...), code: str = Form(...)):
     db = get_db()
     
     if username in db["users"] and db["users"][username]["status"] == "approved":
-        return JSONResponse({"success": True, "message": "Доступ уже подтвержден! Заходим..."})
+        return JSONResponse({"success": True, "message": "Доступ уже подтвержден!"})
 
     if code not in db["keys"]:
         return JSONResponse({"success": False, "message": "Неверный или уже использованный код!"})
@@ -156,27 +157,19 @@ async def request_access(username: str = Form(...), code: str = Form(...)):
     
     asyncio.create_task(send_tg_notification(username, code))
     
-    return JSONResponse({"success": True, "message": "Код успешно активирован! Загрузка..."})
+    return JSONResponse({"success": True, "message": "Код успешно активирован!"})
 
-# --- ТРЕЙДИНГ ДАННЫЕ И ИНДИКАТОРЫ ---
+# --- СТАТИСТИКА И ТРЕЙДИНГ (DATA) ---
 BINANCE_MAPPING = {
-    "EUR/USD": "EURUSDT", "EUR/USD OTC": "EURUSDT",
-    "GBP/USD": "GBPUSDT", "GBP/USD OTC": "GBPUSDT",
-    "USD/JPY": "USDJPY", "USD/JPY OTC": "USDJPY",
-    "AUD/USD": "AUDUSDT", "AUD/USD OTC": "AUDUSDT",
-    "EUR/JPY": "EURJPY", "EUR/JPY OTC": "EURJPY",
-    "USD/CAD": "USDCAD", "USD/CAD OTC": "USDCAD",
-    "GBP/JPY": "GBPJPY", "GBP/JPY OTC": "GBPJPY",
-    "NZD/USD": "NZDUSDT", "NZD/USD OTC": "NZDUSDT",
-    "USD/CHF": "USDCHF", "USD/CHF OTC": "USDCHF",
-    "EUR/GBP": "EURGBP", "EUR/GBP OTC": "EURGBP",
-    "Bitcoin OTC": "BTCUSDT", "Ethereum OTC": "ETHUSDT", 
-    "Solana OTC": "SOLUSDT", "Ripple OTC": "XRPUSDT",
-    "Gold OTC": "PAXGUSDT", "Silver OTC": "XAGUSDT", 
-    "Crude Oil OTC": "USO", "Brent Oil OTC": "BRENT",
-    "US 500 OTC": "SPY", "NASDAQ 100 OTC": "QQQ",
-    "Apple OTC": "AAPL", "Microsoft OTC": "MSFT", "Amazon OTC": "AMZN", 
-    "Tesla OTC": "TSLA", "NVIDIA OTC": "NVDA", "Google OTC": "GOOGL", 
+    "EUR/USD": "EURUSDT", "EUR/USD OTC": "EURUSDT", "GBP/USD": "GBPUSDT", "GBP/USD OTC": "GBPUSDT",
+    "USD/JPY": "USDJPY", "USD/JPY OTC": "USDJPY", "AUD/USD": "AUDUSDT", "AUD/USD OTC": "AUDUSDT",
+    "EUR/JPY": "EURJPY", "EUR/JPY OTC": "EURJPY", "USD/CAD": "USDCAD", "USD/CAD OTC": "USDCAD",
+    "GBP/JPY": "GBPJPY", "GBP/JPY OTC": "GBPJPY", "NZD/USD": "NZDUSDT", "NZD/USD OTC": "NZDUSDT",
+    "USD/CHF": "USDCHF", "USD/CHF OTC": "USDCHF", "EUR/GBP": "EURGBP", "EUR/GBP OTC": "EURGBP",
+    "Bitcoin OTC": "BTCUSDT", "Ethereum OTC": "ETHUSDT", "Solana OTC": "SOLUSDT", "Ripple OTC": "XRPUSDT",
+    "Gold OTC": "PAXGUSDT", "Silver OTC": "XAGUSDT", "Crude Oil OTC": "USO", "Brent Oil OTC": "BRENT",
+    "US 500 OTC": "SPY", "NASDAQ 100 OTC": "QQQ", "Apple OTC": "AAPL", "Microsoft OTC": "MSFT", 
+    "Amazon OTC": "AMZN", "Tesla OTC": "TSLA", "NVIDIA OTC": "NVDA", "Google OTC": "GOOGL", 
     "Netflix OTC": "NFLX", "Meta OTC": "META", "Intel OTC": "INTC", "AMD OTC": "AMD"
 }
 
@@ -403,26 +396,14 @@ async def index():
 
             async function checkAuth() {{
                 const localUser = localStorage.getItem('tg_username');
-                if (!localUser) {{
-                    showScreen('auth-screen');
-                    return;
-                }}
+                if (!localUser) {{ showScreen('auth-screen'); return; }}
                 try {{
                     const response = await fetch('/check_user_status?username=' + encodeURIComponent(localUser));
                     const data = await response.json();
-                    
-                    if (data.status === 'approved') {{
-                        showScreen('terminal-screen');
-                        changeLang();
-                    }} else if (data.status === 'blocked') {{
-                        showScreen('blocked-screen');
-                    }} else {{
-                        localStorage.removeItem('tg_username');
-                        showScreen('auth-screen');
-                    }}
-                }} catch(e) {{
-                    showScreen('auth-screen');
-                }}
+                    if (data.status === 'approved') {{ showScreen('terminal-screen'); changeLang(); }} 
+                    else if (data.status === 'blocked') {{ showScreen('blocked-screen'); }} 
+                    else {{ localStorage.removeItem('tg_username'); showScreen('auth-screen'); }}
+                }} catch(e) {{ showScreen('auth-screen'); }}
             }}
 
             function showScreen(screenId) {{
@@ -432,11 +413,7 @@ async def index():
                 document.getElementById(screenId).style.display = 'flex';
             }}
 
-            function logout() {{
-                localStorage.removeItem('tg_username');
-                window.location.reload();
-            }}
-
+            function logout() {{ localStorage.removeItem('tg_username'); window.location.reload(); }}
             function updateStat(type, val) {{ if(type=='win') wins = Math.max(0, wins + val); else losses = Math.max(0, losses + val); updateDisplay(); }}
             
             function updateDisplay() {{
@@ -558,7 +535,7 @@ async def index():
                 }}
 
                 btn.disabled = true;
-                btn.innerText = "Проверка кода...";
+                btn.innerText = "Проверка...";
 
                 try {{
                     const formData = new FormData();
@@ -570,19 +547,13 @@ async def index():
                         body: formData
                     }});
 
-                    if (!response.ok) {{
-                        throw new Error("Сервер вернул ошибку " + response.status);
-                    }}
-
                     const result = await response.json();
 
                     if(result.success) {{
                         succDiv.innerText = result.message;
                         succDiv.style.display = 'block';
                         localStorage.setItem('tg_username', userInp);
-                        setTimeout(() => {{
-                            checkAuth();
-                        }}, 1000);
+                        setTimeout(() => {{ checkAuth(); }}, 1000);
                     }} else {{
                         errDiv.innerText = result.message;
                         errDiv.style.display = 'block';
@@ -590,7 +561,7 @@ async def index():
                         btn.innerText = "Активировать доступ";
                     }}
                 }} catch(e) {{
-                    errDiv.innerText = "Ошибка: " + e.message;
+                    errDiv.innerText = "Ошибка соединения.";
                     errDiv.style.display = 'block';
                     btn.disabled = false;
                     btn.innerText = "Активировать доступ";
