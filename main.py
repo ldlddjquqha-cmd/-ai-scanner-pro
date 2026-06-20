@@ -12,7 +12,7 @@ app = FastAPI()
 
 # --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
 DB_FILE = "requests.json"
-BOT_TOKEN = "8905743098:AAFCqIHqY1PzaVM4hqISpvuBV4s2ka30bfs"
+BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"
 ADMIN_CHAT_ID = "6177579122"
 
 def get_db():
@@ -30,12 +30,11 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
-# Исправленная функция отправки уведомлений
-async def send_tg_notification(text):
+async def send_tg_notification(username, code):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": ADMIN_CHAT_ID,
-        "text": text,
+        "text": f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** ✅ Доступ разрешен",
         "parse_mode": "Markdown"
     }
     async with httpx.AsyncClient() as client:
@@ -43,6 +42,12 @@ async def send_tg_notification(text):
             await client.post(url, json=payload, timeout=5.0)
         except Exception as e:
             print(f"Ошибка отправки в ТГ: {e}")
+
+async def send_tg_notification_simple(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": ADMIN_CHAT_ID, "text": text, "parse_mode": "Markdown"}
+    async with httpx.AsyncClient() as client:
+        await client.post(url, json=payload, timeout=5.0)
 
 # --- ОБРАБОТЧИК СООБЩЕНИЙ В TELEGRAM (WEBHOOK) ---
 @app.post("/telegram_webhook")
@@ -60,15 +65,17 @@ async def telegram_webhook(request: Request):
                     username = parts[1].replace("@", "").strip()
                     db = get_db()
                     
-                    if command == "/бан" and username in db["users"]:
-                        db["users"][username]["status"] = "blocked"
-                        save_db(db)
-                        await send_tg_notification(f"🚫 Пользователь @{username} заблокирован.")
+                    if command == "/бан":
+                        if username in db["users"]:
+                            db["users"][username]["status"] = "blocked"
+                            save_db(db)
+                            await send_tg_notification_simple(f"🚫 Пользователь @{username} заблокирован.")
                     
-                    elif command == "/разбанить" and username in db["users"]:
-                        db["users"][username]["status"] = "approved"
-                        save_db(db)
-                        await send_tg_notification(f"✅ Пользователь @{username} разблокирован.")
+                    elif command == "/разбанить":
+                        if username in db["users"]:
+                            db["users"][username]["status"] = "approved"
+                            save_db(db)
+                            await send_tg_notification_simple(f"✅ Пользователь @{username} разблокирован.")
                 
     except Exception as e:
         print(f"Ошибка вебхука ТГ: {e}")
@@ -94,6 +101,7 @@ async def generate_key(master: str = None):
         <div style="background:#0f131e; border:1px solid #1a2233; color:#00ff66; font-size:24px; font-weight:bold; padding:15px 30px; border-radius:12px; letter-spacing:1px; margin-bottom:20px;">
             {new_key}
         </div>
+        <p style="color:#4b5975; font-size:12px; max-width:300px; margin-bottom:20px;">Отдай его человеку. Как только он введет его на сайте, его устройство запомнится навсегда.</p>
         <a href="/generate_key?master=SUPER_ADMIN_123" style="text-decoration:none;">
             <button style="background:#963bfe; color:white; font-weight:bold; padding:12px 24px; border:none; border-radius:10px; cursor:pointer;">Создать еще один</button>
         </a>
@@ -128,7 +136,7 @@ async def check_user_status(username: str = ""):
     status = db["users"].get(username, {}).get("status") if username else None
     return JSONResponse({"status": status})
 
-# --- ЖЕСТКАЯ ЛОГИКА АКТИВАЦИИ ---
+# --- ЖЕСТКАЯ ЛОГИКА АКТИВАЦИИ ОДНОРАЗОВЫХ КОДОВ ---
 @app.post("/request_access")
 async def request_access(username: str = Form(...), code: str = Form(...)):
     username = username.strip().replace("@", "").replace(" ", "")
@@ -136,20 +144,20 @@ async def request_access(username: str = Form(...), code: str = Form(...)):
     db = get_db()
     
     if username in db["users"] and db["users"][username]["status"] == "approved":
-        return JSONResponse({"success": True, "message": "Доступ уже подтвержден!"})
+        return JSONResponse({"success": True, "message": "Доступ уже подтвержден! Заходим..."})
 
     if code not in db["keys"]:
-        return JSONResponse({"success": False, "message": "Неверный или использованный код!"})
+        return JSONResponse({"success": False, "message": "Неверный или уже использованный код!"})
     
     db["keys"].remove(code)
     db["users"][username] = {"status": "approved", "used_code": code}
     save_db(db)
     
-    await send_tg_notification(f"🔔 *Новый ученик:* @{username}\n*Код:* `{code}`")
+    asyncio.create_task(send_tg_notification(username, code))
     
-    return JSONResponse({"success": True, "message": "Код успешно активирован!"})
+    return JSONResponse({"success": True, "message": "Код успешно активирован! Загрузка..."})
 
-# --- ТРЕЙДИНГ ДАННЫЕ (BINANCE MAPPING И АЛГОРИТМЫ ОСТАЮТСЯ КАК У ТЕБЯ) ---
+# --- ТРЕЙДИНГ ДАННЫЕ И ИНДИКАТОРЫ ---
 BINANCE_MAPPING = {
     "EUR/USD": "EURUSDT", "EUR/USD OTC": "EURUSDT",
     "GBP/USD": "GBPUSDT", "GBP/USD OTC": "GBPUSDT",
@@ -310,17 +318,25 @@ async def index():
         </style>
     </head>
     <body>
+
         <div id="auth-screen" class="container" style="display: none;">
             <div class="title">HROM QUANTUM CORE</div>
             <div class="subtitle">Для доступа к сигналам введите ваш уникальный код</div>
+            
             <div style="width: 100%; display: flex; flex-direction: column; align-items: center;">
-                <div class="input-box"><input type="text" id="username" placeholder="Введите ваш @username в ТГ"></div>
-                <div class="input-box"><input type="text" id="code" placeholder="Введите код доступа"></div>
+                <div class="input-box">
+                    <input type="text" id="username" placeholder="Введите ваш @username в ТГ">
+                </div>
+                <div class="input-box">
+                    <input type="text" id="code" placeholder="Введите код доступа">
+                </div>
                 <button type="button" id="submitBtn" class="btn-activate" onclick="sendForm()">Активировать доступ</button>
+                
                 <div id="error-msg" style="color: #ff3344; font-size: 13px; font-weight: bold; margin-top: 15px; text-align: center; display: none;"></div>
                 <div id="success-msg" style="color: #00ff66; font-size: 13px; font-weight: bold; margin-top: 15px; text-align: center; display: none;"></div>
             </div>
         </div>
+
         <div id="terminal-screen" style="display: none; flex-direction: column; min-height: 100vh;">
             <div style="max-width:430px; width: 100%; margin:15px auto 0 auto; padding:0 15px; display:flex; justify-content:space-between; align-items:center; box-sizing: border-box;">
                 <div style="display:flex; align-items:center; gap:8px;">
@@ -335,6 +351,7 @@ async def index():
                 </div>
                 <a href="https://t.me/+uekq4TquqkM4Mzcy" target="_blank" style="text-decoration: none;"><button id="vip_btn_text" class="btn-vip-top">👑 VIP СИГНАЛЫ</button></a>
             </div>
+
             <div style="max-width:430px; width: 100%; margin:15px auto 30px auto; padding:25px; background:#080a10; border-radius:28px; border: 1px solid #121722; box-shadow: 0 25px 50px rgba(0,0,0,0.8); text-align:center; box-sizing: border-box;">
                 <div class="stat-panel">
                     <div id="wr_display" class="wr-val">WIN RATE: 0%</div>
@@ -354,18 +371,24 @@ async def index():
                 <button id="runBtn" class="btn btn-main" onclick="startFlow(false)">СКАНИРОВАТЬ РЫНОК</button>
                 <button id="autoBtn" class="btn btn-auto" onclick="startFlow(true)">ИИ СДЕЛАТЬ ЗА ВАС</button>
                 <button id="martBtn" class="btn btn-mart" onclick="startFlow(false, true)">ПЕРЕКРЫТИЕ</button>
+                
                 <a href="https://pocketoption.com/register" target="_blank" style="text-decoration: none;"><button id="btn_pocket" class="btn btn-pocket">ОТКРЫТЬ POCKET OPTION</button></a>
                 <div id="status" style="font-size:11px; color:#4b5975; margin-top:20px; min-height:18px; font-weight:700; letter-spacing:0.5px;">СИСТЕМА СИНХРОНИЗИРОВАНА</div>
                 <div id="loader" class="loader"></div>
                 <div id="res" style="font-size:55px; font-weight:900; margin:10px 0; min-height:66px; letter-spacing:2px; color:#ffffff;">--</div>
                 <div id="accuracy" style="font-size:14px; font-weight:800; color:#a855f7; margin-top:-5px; margin-bottom:10px; display:none;"></div>
                 <div id="timer" style="font-size:14px; font-weight:800; color:#ffaa00; margin-bottom:15px; min-height:20px;"></div>
+                
                 <button class="btn" style="background:#141924; color:#ff3344; margin-top:10px; font-size:11px; padding:10px;" onclick="logout()">ВЫЙТИ ИЗ АККАУНТА</button>
                 <a href="https://t.me/andriddddd" target="_blank" style="text-decoration: none;"><button id="btn_supp" class="btn btn-support">РАЗРАБОТЧИК / SUPPORT</button></a>
             </div>
         </div>
+
+        <div id="blocked-screen" style="display: none; background:#06080c; color:#ff3344; font-family:sans-serif; text-align:center; padding-top:100px; height:100vh; flex-direction:column; align-items:center;">
+            <h1>Доступ заблокирован администратором.</h1>
+        </div>
+
         <script>
-            // JS код остается прежним, так как ты его не менял
             const rawData = {json.dumps(ASSETS_DATA)};
             const tf_options = {{
                 ru: ["5 сек", "15 сек", "30 сек", "1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин"],
@@ -374,26 +397,47 @@ async def index():
                 es: ["5 seg", "15 seg", "30 seg", "1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min"],
                 de: ["5 Sek", "15 Sek", "30 Sek", "1 Min", "2 Min", "3 Min", "4 Min", "5 Min", "6 Min", "7 Min", "8 Min", "9 Min", "10 Min"]
             }};
+            
             let wins = 0, losses = 0, currentBet = 100, martStep = 0, currentInterval = null, currentExpInterval = null;
+
             async function checkAuth() {{
                 const localUser = localStorage.getItem('tg_username');
-                if (!localUser) {{ showScreen('auth-screen'); return; }}
+                if (!localUser) {{
+                    showScreen('auth-screen');
+                    return;
+                }}
                 try {{
                     const response = await fetch('/check_user_status?username=' + encodeURIComponent(localUser));
                     const data = await response.json();
-                    if (data.status === 'approved') {{ showScreen('terminal-screen'); changeLang(); }}
-                    else if (data.status === 'blocked') {{ showScreen('blocked-screen'); }}
-                    else {{ localStorage.removeItem('tg_username'); showScreen('auth-screen'); }}
-                }} catch(e) {{ showScreen('auth-screen'); }}
+                    
+                    if (data.status === 'approved') {{
+                        showScreen('terminal-screen');
+                        changeLang();
+                    }} else if (data.status === 'blocked') {{
+                        showScreen('blocked-screen');
+                    }} else {{
+                        localStorage.removeItem('tg_username');
+                        showScreen('auth-screen');
+                    }}
+                }} catch(e) {{
+                    showScreen('auth-screen');
+                }}
             }}
+
             function showScreen(screenId) {{
                 document.getElementById('auth-screen').style.display = 'none';
                 document.getElementById('terminal-screen').style.display = 'none';
                 document.getElementById('blocked-screen').style.display = 'none';
                 document.getElementById(screenId).style.display = 'flex';
             }}
-            function logout() {{ localStorage.removeItem('tg_username'); window.location.reload(); }}
+
+            function logout() {{
+                localStorage.removeItem('tg_username');
+                window.location.reload();
+            }}
+
             function updateStat(type, val) {{ if(type=='win') wins = Math.max(0, wins + val); else losses = Math.max(0, losses + val); updateDisplay(); }}
+            
             function updateDisplay() {{
                 document.getElementById('win_counter').innerText = wins;
                 document.getElementById('loss_counter').innerText = losses;
@@ -403,7 +447,9 @@ async def index():
                 el.innerText = "WIN RATE: " + wr + "%";
                 el.style.color = wr >= 50 ? "#00ff66" : "#ff3344";
             }}
+            
             function resetStats() {{ wins=0; losses=0; currentBet=100; martStep=0; updateDisplay(); }}
+            
             const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦", es: "🇪🇸", de: "🇩🇪" }};
             const dictionary = {{ 
                 ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", auto: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
@@ -412,6 +458,7 @@ async def index():
                 es: {{ market: "CATEGORÍA DE MERCADO", type: "TIPO DE ACTIVOS", asset: "PAR ACTIVO", tf: "TIMEFRAME DE VELA", exp: "EXPIRACIÓN", scan: "ESCANEAR MERCADO", auto: "IA LO HACE POR TI", pocket: "ABRIR POCKET OPTION", support: "DESARROLLADOR / SUPPORT", ready: "SISTEMA SINCRONIZADO", vip: "👑 SEÑALES VIP", mart: "MARTINGALA", profit: "Ganancia", loss: "Pérdida", reset: "REINICIAR ESTADÍСТICAS", up: "SUBIR", down: "BAJAR", enter: "ENTRADA EN: ", open: "¡OPERCION ABIERTA!", close: "CIERRE EN: ", end: "CICLO COMPLETADO" }},
                 de: {{ market: "MARKTKATEGORIE", type: "PRODUKTTYP", asset: "AKTIVES PAAR", tf: "KERZEN ZEITRAHMEN", exp: "ABLAUFZEIT", scan: "MARKT SCANNEN", auto: "KI MACHT ES FÜR DICH", pocket: "POCKET OPTION ÖFFNEN", support: "ENTWICKLER / SUPPORT", ready: "SYSTEM SYNCHRONISIERT", vip: "👑 VIP SIGNALE", mart: "MARTINGALE", profit: "Gewinn", loss: "Verlust", reset: "STATISTIK ZURÜCKSETZEN", up: "HOCH", down: "RUNTER", enter: "EINSTIEG IN: ", open: "DEAL GEÖFFNET!", close: "RESTZEIT: ", end: "ZYKLUS BEENDET" }}
             }};
+            
             function changeLang() {{ 
                 let l = document.getElementById('lang').value;
                 let d = dictionary[l] || dictionary['en'];
@@ -436,9 +483,11 @@ async def index():
                 Object.keys(rawData[l]).forEach(c => {{ catSelect.innerHTML += `<option>${{c}}</option>`; }}); 
                 updCategory(); 
             }}
+            
             function calcLocalPayout(assetName) {{ return assetName.includes("OTC") ? 92 : 82; }}
             function updCategory(){{ let l = document.getElementById('lang').value, c = document.getElementById('cat').value, types = Object.keys(rawData[l][c]); document.getElementById('sub_cat').innerHTML = types.map(t => `<option>${{t}}</option>`).join(''); updSubCategory(); }}
             function updSubCategory() {{ let l = document.getElementById('lang').value, c = document.getElementById('cat').value, t = document.getElementById('sub_cat').value, assets = rawData[l][c][t] || []; document.getElementById('asset').innerHTML = assets.map(a => `<option>${{a}}</option>`).join(''); updAsset(); }}
+            
             function updAsset() {{ 
                 let l = document.getElementById('lang').value;
                 let asset = document.getElementById('asset').value; 
@@ -449,6 +498,7 @@ async def index():
                 expSelect.innerHTML = options.map(o => `<option>${{o}}</option>`).join('');
                 document.getElementById('time').innerHTML = tf_options[l].map(o => `<option>${{o}}</option>`).join(''); 
             }}
+            
             async function startFlow(isAI, isMart = false) {{
                 if(currentInterval) clearInterval(currentInterval);
                 if(currentExpInterval) clearInterval(currentExpInterval);
@@ -489,34 +539,63 @@ async def index():
                     else {{ clearInterval(currentExpInterval); timerEl.innerText = d.end; document.getElementById('martBtn').style.display = 'block'; }}
                 }}, 1000);
             }}
+
             async function sendForm() {{
                 const userInp = document.getElementById('username').value.trim().replace('@', '');
                 const codeInp = document.getElementById('code').value.trim();
                 const btn = document.getElementById('submitBtn');
                 const errDiv = document.getElementById('error-msg');
                 const succDiv = document.getElementById('success-msg');
-                errDiv.style.display = 'none'; succDiv.style.display = 'none';
-                if(!userInp || !codeInp) {{ errDiv.innerText = "Заполните все поля!"; errDiv.style.display = 'block'; return; }}
-                btn.disabled = true; btn.innerText = "Проверка кода...";
+
+                errDiv.style.display = 'none';
+                succDiv.style.display = 'none';
+
+                if(!userInp || !codeInp) {{
+                    errDiv.innerText = "Заполните все поля!";
+                    errDiv.style.display = 'block';
+                    return;
+                }}
+
+                btn.disabled = true;
+                btn.innerText = "Проверка кода...";
+
                 try {{
                     const formData = new FormData();
                     formData.append('username', userInp);
                     formData.append('code', codeInp);
-                    const response = await fetch('/request_access', {{ method: 'POST', body: formData }});
+
+                    const response = await fetch('/request_access', {{
+                        method: 'POST',
+                        body: formData
+                    }});
+
+                    if (!response.ok) {{
+                        throw new Error("Сервер вернул ошибку " + response.status);
+                    }}
+
                     const result = await response.json();
+
                     if(result.success) {{
-                        succDiv.innerText = result.message; succDiv.style.display = 'block';
+                        succDiv.innerText = result.message;
+                        succDiv.style.display = 'block';
                         localStorage.setItem('tg_username', userInp);
-                        setTimeout(() => {{ checkAuth(); }}, 1000);
+                        setTimeout(() => {{
+                            checkAuth();
+                        }}, 1000);
                     }} else {{
-                        errDiv.innerText = result.message; errDiv.style.display = 'block';
-                        btn.disabled = false; btn.innerText = "Активировать доступ";
+                        errDiv.innerText = result.message;
+                        errDiv.style.display = 'block';
+                        btn.disabled = false;
+                        btn.innerText = "Активировать доступ";
                     }}
                 }} catch(e) {{
-                    errDiv.innerText = "Ошибка: " + e.message; errDiv.style.display = 'block';
-                    btn.disabled = false; btn.innerText = "Активировать доступ";
+                    errDiv.innerText = "Ошибка: " + e.message;
+                    errDiv.style.display = 'block';
+                    btn.disabled = false;
+                    btn.innerText = "Активировать доступ";
                 }}
             }}
+
             checkAuth();
         </script>
     </body>
