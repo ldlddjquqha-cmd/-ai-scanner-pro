@@ -65,18 +65,17 @@ async def telegram_webhook(request: Request):
                     username = parts[1].replace("@", "").strip()
                     db = get_db()
                     
-                    if username in db["users"]:
-                        if command == "/бан":
+                    if command == "/бан":
+                        if username in db["users"]:
                             db["users"][username]["status"] = "blocked"
                             save_db(db)
                             await send_tg_notification_simple(f"🚫 Пользователь @{username} заблокирован.")
-                        
-                        elif command == "/разбанить":
+                    
+                    elif command == "/разбанить":
+                        if username in db["users"]:
                             db["users"][username]["status"] = "approved"
                             save_db(db)
                             await send_tg_notification_simple(f"✅ Пользователь @{username} разблокирован.")
-                    else:
-                        await send_tg_notification_simple(f"⚠️ Пользователь @{username} не найден в базе данных.")
                 
     except Exception as e:
         print(f"Ошибка вебхука ТГ: {e}")
