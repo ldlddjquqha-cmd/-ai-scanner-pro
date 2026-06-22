@@ -171,7 +171,7 @@ async def telegram_webhook(request: Request):
                     username = parts[1].replace("@", "").strip().replace(" ", "")
                     db = get_db()
                     
-                    if command == "/бан":
+                    if command == "/бан": 
                         print(f"[ADMIN COMMAND] Запрос на бан пользователя @{username}...")
                         if username not in db["users"]: 
                             db["users"][username] = {}
