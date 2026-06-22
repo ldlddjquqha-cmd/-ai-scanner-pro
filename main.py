@@ -47,7 +47,10 @@ async def send_tg_notification_simple(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": ADMIN_CHAT_ID, "text": text, "parse_mode": "Markdown"}
     async with httpx.AsyncClient() as client:
-        await client.post(url, json=payload, timeout=5.0)
+        try:
+            await client.post(url, json=payload, timeout=5.0)
+        except:
+            pass
 
 # --- ОБРАБОТЧИК СООБЩЕНИЙ В TELEGRAM (WEBHOOK) ---
 @app.post("/telegram_webhook")
@@ -65,19 +68,15 @@ async def telegram_webhook(request: Request):
                     username = parts[1].replace("@", "").strip()
                     db = get_db()
                     
-                    if username in db["users"]:
-                        if command == "/бан":
-                            db["users"][username]["status"] = "blocked"
-                            save_db(db)
-                            await send_tg_notification_simple(f"🚫 Пользователь @{username} заблокирован.")
-                        
-                        elif command == "/разбанить":
-                            db["users"][username]["status"] = "approved"
-                            save_db(db)
-                            await send_tg_notification_simple(f"✅ Пользователь @{username} разблокирован.")
-                    else:
-                        await send_tg_notification_simple(f"⚠️ Пользователь @{username} не найден в базе данных.")
-                
+                    if command == "/бан":
+                        db["users"][username] = {"status": "blocked"}
+                        save_db(db)
+                        await send_tg_notification_simple(f"🚫 Пользователь @{username} забанен. Доступ закрыт навсегда.")
+                    
+                    elif command == "/разбанить":
+                        db["users"][username] = {"status": "approved"}
+                        save_db(db)
+                        await send_tg_notification_simple(f"✅ Пользователь @{username} разблокирован.")
     except Exception as e:
         print(f"Ошибка вебхука ТГ: {e}")
         
@@ -144,6 +143,9 @@ async def request_access(username: str = Form(...), code: str = Form(...)):
     code = code.strip().replace(" ", "")
     db = get_db()
     
+    if username in db["users"] and db["users"][username]["status"] == "blocked":
+        return JSONResponse({"success": False, "message": "Вы заблокированы!"})
+
     if username in db["users"] and db["users"][username]["status"] == "approved":
         return JSONResponse({"success": True, "message": "Доступ уже подтвержден! Заходим..."})
 
@@ -392,11 +394,11 @@ async def index():
         <script>
             const rawData = {json.dumps(ASSETS_DATA)};
             const tf_options = {{
-                ru: ["5 сек", "15 сек", "30 сек", "1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин"],
-                en: ["5 sec", "15 sec", "30 sec", "1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min"],
-                ua: ["5 сек", "15 сек", "30 сек", "1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "6 хв", "7 хв", "8 хв", "9 хв", "10 хв"],
-                es: ["5 seg", "15 seg", "30 seg", "1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min"],
-                de: ["5 Sek", "15 Sek", "30 Sek", "1 Min", "2 Min", "3 Min", "4 Min", "5 Min", "6 Min", "7 Min", "8 Min", "9 Min", "10 Min"]
+                ru: ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин"],
+                en: ["1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min"],
+                ua: ["1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "6 хв", "7 хв", "8 хв", "9 хв", "10 хв"],
+                es: ["1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min"],
+                de: ["1 Min", "2 Min", "3 Min", "4 Min", "5 Min", "6 Min", "7 Min", "8 Min", "9 Min", "10 Min"]
             }};
             
             let wins = 0, losses = 0, currentBet = 100, martStep = 0, currentInterval = null, currentExpInterval = null;
@@ -486,7 +488,7 @@ async def index():
             }}
             
             function calcLocalPayout(assetName) {{ return assetName.includes("OTC") ? 92 : 82; }}
-            function updCategory(){{ let l = document.getElementById('lang').value, c = document.getElementById('cat').value, types = Object.keys(rawData[l][c]); document.getElementById('sub_cat').innerHTML = types.map(t => `<option>${{t}}</option>`).join(''); updSubCategory(); }}
+            function updCategory() {{ let l = document.getElementById('lang').value, c = document.getElementById('cat').value, types = Object.keys(rawData[l][c]); document.getElementById('sub_cat').innerHTML = types.map(t => `<option>${{t}}</option>`).join(''); updSubCategory(); }}
             function updSubCategory() {{ let l = document.getElementById('lang').value, c = document.getElementById('cat').value, t = document.getElementById('sub_cat').value, assets = rawData[l][c][t] || []; document.getElementById('asset').innerHTML = assets.map(a => `<option>${{a}}</option>`).join(''); updAsset(); }}
             
             function updAsset() {{ 
@@ -495,7 +497,6 @@ async def index():
                 document.getElementById('payout_lbl').innerText = `PAYOUT: ${{calcLocalPayout(asset)}}%`; 
                 let expSelect = document.getElementById('exp');
                 let options = tf_options[l];
-                if (!asset.includes("OTC")) {{ options = options.filter(o => !o.includes("сек") && !o.includes("sec") && !o.includes("seg") && !o.includes("Sek")); }}
                 expSelect.innerHTML = options.map(o => `<option>${{o}}</option>`).join('');
                 document.getElementById('time').innerHTML = tf_options[l].map(o => `<option>${{o}}</option>`).join(''); 
             }}
@@ -507,14 +508,11 @@ async def index():
                 let d = dictionary[l] || dictionary['en'];
                 if(isAI) {{ 
                     let cats = Object.keys(rawData[l]);
-                    document.getElementById('cat').selectedIndex = Math.floor(Math.random()*cats.length); 
-                    updCategory(); 
-                    let subCats = document.getElementById('sub_cat').options;
-                    document.getElementById('sub_cat').selectedIndex = Math.floor(Math.random()*subCats.length);
-                    updSubCategory();
-                    let assets = document.getElementById('asset').options;
-                    document.getElementById('asset').selectedIndex = Math.floor(Math.random()*assets.length);
-                    updAsset();
+                    let rCat = cats[Math.floor(Math.random()*cats.length)]; document.getElementById('cat').value = rCat; updCategory(); 
+                    let subCats = Object.keys(rawData[l][rCat]);
+                    let rSub = subCats[Math.floor(Math.random()*subCats.length)]; document.getElementById('sub_cat').value = rSub; updSubCategory();
+                    let assets = rawData[l][rCat][rSub];
+                    document.getElementById('asset').value = assets[Math.floor(Math.random()*assets.length)]; updAsset();
                 }}
                 if(!isMart) {{ currentBet = 100; martStep = 0; }} 
                 else {{ currentBet = (currentBet * 2.3).toFixed(2); martStep++; }}
@@ -531,8 +529,7 @@ async def index():
                 document.getElementById('accuracy').style.display = 'block';
                 document.getElementById('accuracy').innerText = "ACCURACY: " + data.accuracy + "%";
                 let expVal = document.getElementById('exp').value;
-                let expSeconds = parseInt(expVal.replace(/\D/g, ''));
-                if (!expVal.includes("сек") && !expVal.includes("sec") && !expVal.includes("seg") && !expVal.includes("Sek")) {{ expSeconds = expSeconds * 60; }}
+                let expSeconds = parseInt(expVal.replace(/\D/g, '')) * 60;
                 timerEl = document.getElementById('timer');
                 timerEl.innerText = d.open;
                 currentExpInterval = setInterval(() => {{
