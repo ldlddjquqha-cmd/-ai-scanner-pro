@@ -458,8 +458,8 @@ async def analyze_market_with_ai(asset: str, timeframe: str, current_price: floa
             return "DOWN", 76, "Резервный алгоритм ТА: Сигнал на понижение от зоны сопротивления."
         return "NONE", 0, "Резервный алгоритм ТА: Недостаточно волатильности для безопасной сделки."
 
-@
-        @app.post("/scan_screenshot")
+
+    @app.post("/scan_screenshot")
 async def scan_screenshot(username: str = Form(""), file: UploadFile = File(...)):
     username = username.strip().replace("@", "")
     print(f"[AI SCANNER] Ученик @{username} отправил изображение для ИИ-сканирования.")
