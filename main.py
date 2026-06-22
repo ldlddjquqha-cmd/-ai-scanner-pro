@@ -57,28 +57,41 @@ async def send_tg_notification_simple(text):
 async def telegram_webhook(request: Request):
     try:
         data = await request.json()
+        print(f"📡 Получен вебхук: {data}")  # Лог отладки в консоли сервера
+        
         if "message" in data and "text" in data["message"]:
-            text = data["message"]["text"]
+            text = data["message"]["text"].strip()
             chat_id = str(data["message"]["chat"]["id"])
             
             if chat_id == ADMIN_CHAT_ID:
                 parts = text.split()
                 if len(parts) >= 2:
                     command = parts[0]
-                    username = parts[1].replace("@", "").strip()
+                    # Очищаем юзернейм от @ и пробелов
+                    username = parts[1].replace("@", "").strip().replace(" ", "")
                     db = get_db()
                     
                     if command == "/бан":
-                        db["users"][username] = {"status": "blocked"}
+                        if username not in db["users"]:
+                            db["users"][username] = {}
+                        db["users"][username]["status"] = "blocked"
                         save_db(db)
-                        await send_tg_notification_simple(f"🚫 Пользователь @{username} забанен. Доступ закрыт навсегда.")
+                        print(f"🚫 Заблокирован: {username}")
+                        await send_tg_notification_simple(f"🚫 Пользователь @{username} заблокирован. Доступ закрыт навсегда.")
                     
                     elif command == "/разбанить":
-                        db["users"][username] = {"status": "approved"}
+                        if username not in db["users"]:
+                            db["users"][username] = {}
+                        db["users"][username]["status"] = "approved"
                         save_db(db)
+                        print(f"✅ Разблокирован: {username}")
                         await send_tg_notification_simple(f"✅ Пользователь @{username} разблокирован.")
+                else:
+                    print("⚠️ Неверный формат. Нужно: /бан ник")
+            else:
+                print(f"⛔ Игнор: ID чата ({chat_id}) не совпадает с админским.")
     except Exception as e:
-        print(f"Ошибка вебхука ТГ: {e}")
+        print(f"🚨 Ошибка вебхука ТГ: {e}")
         
     return {"status": "ok"}
 
@@ -387,8 +400,8 @@ async def index():
             </div>
         </div>
 
-        <div id="blocked-screen" style="display: none; background:#06080c; color:#ff3344; font-family:sans-serif; text-align:center; padding-top:100px; height:100vh; flex-direction:column; align-items:center;">
-            <h1>Доступ заблокирован администратором.</h1>
+        <div id="blocked-screen" style="display: none; width:100%; background:#06080c; color:#ff3344; font-family:sans-serif; text-align:center; padding-top:100px; height:100vh; flex-direction:column; align-items:center; box-sizing: border-box;">
+            <h1 style="font-size:24px; padding: 0 20px;">Доступ заблокирован администратором.</h1>
         </div>
 
         <script>
@@ -417,6 +430,7 @@ async def index():
                         showScreen('terminal-screen');
                         changeLang();
                     }} else if (data.status === 'blocked') {{
+                        localStorage.removeItem('tg_username'); // На всякий случай чистим локальное хранилище
                         showScreen('blocked-screen');
                     }} else {{
                         localStorage.removeItem('tg_username');
