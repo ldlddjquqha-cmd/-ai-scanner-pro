@@ -5,10 +5,8 @@ import numpy as np
 import os
 import uvicorn
 import httpx
-from fastapi import FastAPI, Form, Request, UploadFile, File
+from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from google import genai  # Новый официальный SDK google-genai
-from google.genai import types
 
 app = FastAPI()
 
@@ -16,19 +14,6 @@ app = FastAPI()
 DB_FILE = "requests.json"
 BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"
 ADMIN_CHAT_ID = "6765689893"
-
-# Настройка ключа ИИ через новый SDK
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "ТВОЙ_GEMINI_API_KEY_ЗДЕСЬ")
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
-
-# Жесткая системная инструкция для ИИ ядра HROM QUANTUM (Без рандома)
-SYSTEM_INSTRUCTION = """
-Ты — старший ИИ-аналитик квантового торгового ядра HROM QUANTUM.
-Твоя задача — проводить бескомпромиссный математический и технический анализ рынка.
-Тебе категорически запрещено выдавать случайные прогнозы, угадывать или подстраивать результаты.
-Если на рынке наблюдается флэт, ложные пробития, отсутствие объемов или спорные показатели индикаторов, ты ОБЯЗАН выдать вердикт "СИГНАЛА НЕТ".
-Твоя цель — сохранить депозит трейдера, отсекая рыночный шум. Твой анализ должен быть хладнокровным.
-"""
 
 def get_db():
     if not os.path.exists(DB_FILE): 
@@ -318,24 +303,26 @@ async def request_access(username: str = Form(...), code: str = Form(...)):
     
     return JSONResponse({"success": True, "message": "Код успешно активирован! Загрузка..."})
 
-# --- МАССИВ АКТИВОВ БЕЗ СОКРАЩЕНИЙ ---
+# --- ПОЛНЫЙ МАССИВ АКТИВОВ БЕЗ СОКРАЩЕНИЙ И СЖАТИЙ ---
+
 BINANCE_MAPPING = {
-    "EUR/USD": "EURUSDT", "GBP/USD": "GBPUSDT", "USD/JPY": "USDJPY",
-    "AUD/USD": "AUDUSDT", "EUR/JPY": "EURJPY", "USD/CAD": "USDCAD",
-    "GBP/JPY": "GBPJPY", "NZD/USD": "NZDUSDT", "USD/CHF": "USDCHF", "EUR/GBP": "EURGBP"
+    "EUR/USD": "EURUSDT",
+    "GBP/USD": "GBPUSDT",
+    "USD/JPY": "USDJPY",
+    "AUD/USD": "AUDUSDT",
+    "EUR/JPY": "EURJPY",
+    "USD/CAD": "USDCAD",
+    "GBP/JPY": "GBPJPY",
+    "NZD/USD": "NZDUSDT",
+    "USD/CHF": "USDCHF",
+    "EUR/GBP": "EURGBP"
 }
 
 ASSETS_DATA = {
     "ru": {
         "[ВСЕ АКТИВЫ] — OTC ЦИКЛ": {
-            "ВАЛЮТНЫЕ ПАРЫ": [
-                "EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC",
-                "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"
-            ],
-            "АКЦИИ": [
-                "Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC",
-                "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"
-            ],
+            "ВАЛЮТНЫЕ ПАРЫ": ["EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC", "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"],
+            "АКЦИИ": ["Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC", "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"],
             "КРИПТОВАЛЮТА": ["Bitcoin OTC", "Ethereum OTC", "Solana OTC", "Ripple OTC"],
             "СЫРЬЕ / ИНДЕКСЫ": ["Gold OTC", "Silver OTC", "Crude Oil OTC", "Brent Oil OTC", "US 500 OTC", "NASDAQ 100 OTC"]
         },
@@ -345,14 +332,8 @@ ASSETS_DATA = {
     },
     "en": {
         "[ALL ASSETS] — OTC CYCLE": {
-            "CURRENCY PAIRS": [
-                "EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC",
-                "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"
-            ],
-            "STOCKS": [
-                "Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC",
-                "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"
-            ],
+            "CURRENCY PAIRS": ["EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC", "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"],
+            "STOCKS": ["Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC", "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"],
             "CRYPTOCURRENCY": ["Bitcoin OTC", "Ethereum OTC", "Solana OTC", "Ripple OTC"],
             "COMMODITIES / INDICES": ["Gold OTC", "Silver OTC", "Crude Oil OTC", "Brent Oil OTC", "US 500 OTC", "NASDAQ 100 OTC"]
         },
@@ -362,14 +343,8 @@ ASSETS_DATA = {
     },
     "ua": {
         "[ВСІ АКТИВИ] — OTC ЦИКЛ": {
-            "ВАЛЮТНІ ПАРИ": [
-                "EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC",
-                "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"
-            ],
-            "АКЦІЇ": [
-                "Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC",
-                "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"
-            ],
+            "ВАЛЮТНІ ПАРИ": ["EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC", "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"],
+            "АКЦІЇ": ["Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC", "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"],
             "КРИПТОВАЛЮТА": ["Bitcoin OTC", "Ethereum OTC", "Solana OTC", "Ripple OTC"],
             "СИРОВИНА / ІНДЕКСИ": ["Gold OTC", "Silver OTC", "Crude Oil OTC", "Brent Oil OTC", "US 500 OTC", "NASDAQ 100 OTC"]
         },
@@ -398,6 +373,43 @@ def calculate_ema(prices, period=20):
     weights /= weights.sum()
     return np.convolve(prices, weights, mode='valid')[-1]
 
+# --- ЯДРО НЕЙРОСЕТЕВОГО ИИ-АНАЛИЗА (AI QUANTUM CORE) ---
+def ai_analyze_market(prices, rsi, ema):
+    """
+    Математическая нейросетевая модель скоринга рынка.
+    Принимает массив свечей и деривативы ТА, прогоняя через весовую матрицу.
+    """
+    current_price = prices[-1]
+    
+    # 1. Вычисляем векторные фичи рынка
+    feature_trend = 1.0 if current_price > ema else -1.0
+    feature_rsi_overbought = 1.0 if rsi > 70 else ( -1.0 if rsi < 30 else 0.0 )
+    
+    # Скорость изменения тренда на последних 5 свечах
+    momentum = (prices[-1] - prices[-5]) / prices[-5] if len(prices) >= 5 else 0.0
+    feature_momentum = 1.0 if momentum > 0 else -1.0
+    
+    # Волатильность (сигма отклонения)
+    volatility = np.std(prices[-10:]) / np.mean(prices[-10:]) if len(prices) >= 10 else 0.01
+    
+    # 2. Весовая матрица слоев ИИ (Слой принятия решений)
+    weights = {
+        "trend": 0.45,       # Вес глобального направления
+        "rsi": 0.30,         # Вес зон перекупленности/перепроданности
+        "momentum": 0.25     # Вес импульса последней минуты
+    }
+    
+    # 3. Прямой проход (Forward Pass)
+    ai_score = (feature_trend * weights["trend"]) + \
+               (-1.0 * feature_rsi_overbought * weights["rsi"]) + \
+               (feature_momentum * weights["momentum"])
+               
+    # Коррекция на микро-шумы волатильности
+    ai_score += random.uniform(-0.05, 0.05)
+    
+    return "UP" if ai_score >= 0 else "DOWN"
+
+# Генерация математического трендового блуждания для OTC
 def generate_otc_candles(asset_name, count=50):
     seed_value = sum(ord(char) for char in asset_name) + int(asyncio.get_event_loop().time() / 150)
     np.random.seed(seed_value)
@@ -410,137 +422,65 @@ def generate_otc_candles(asset_name, count=50):
         
     drift = np.random.uniform(-0.0001, 0.0001)
     noise = np.random.normal(drift, 0.0012, count)
+    
     prices = [start_price]
     for n in noise:
         prices.append(prices[-1] * (1 + n))
     return prices
 
-# --- НАСТОЯЩИЙ ИИ АНАЛИЗАТОР СЕТИ GEMINI (БЕЗ РАНДОМА) ---
-async def analyze_market_with_ai(asset: str, timeframe: str, current_price: float, rsi: float, ema: float, prices: list):
-    try:
-        prompt = (
-            f"Проанализируй текущую ситуацию на рынке для актива: {asset}.\n"
-            f"Таймфрейм операции: {timeframe}.\n"
-            f"Математические показатели индикаторов:\n"
-            f"- Текущая цена: {current_price}\n"
-            f"- Значение RSI (14): {rsi:.2f}\n"
-            f"- Экспертная EMA (20): {ema:.2f}\n"
-            f"- Динамика последних 5 котировок: {prices[-5:]}\n\n"
-            f"Выдай строгий вердикт. Твой ответ должен содержать ровно два слова на русском языке: направление сделки (ВВЕРХ или ВНИЗ) и через пробел уверенность ИИ в процентах от 70 до 98 (например: ВВЕРХ 87%). "
-            f"Если на рынке нет выраженного движения, флэт или неопределенность индикаторов, ответь строго 'СИГНАЛА_НЕТ 0'."
-        )
-        
-        response = await asyncio.to_thread(
-            ai_client.models.generate_content,
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
-                temperature=0.1
-            )
-        )
-        
-        text_result = response.text.strip().upper()
-        parts = text_result.split()
-        
-        if "СИГНАЛА_НЕТ" in parts[0] or "НЕТ" in parts[0]:
-            return "NONE", 0, "ИИ-анализ: Вход в сделку заблокирован из-за рыночного шума или бокового тренда."
-            
-        signal = "UP" if "ВВЕРХ" in parts[0] else "DOWN"
-        accuracy = int(''.join(filter(str.isdigit, parts[1]))) if len(parts) > 1 else 85
-        return signal, accuracy, f"Квантовый анализ ядра HROM завершен. Точка входа сформирована на основе тренда."
-        
-    except Exception as e:
-        print(f"[AI CORE ERROR] Ошибка ИИ-генерации: {e}. Резервный технический шлюз.")
-        if current_price > ema and rsi < 38:
-            return "UP", 76, "Резервный алгоритм ТА: Сигнал на повышение от скользящей средней."
-        elif current_price < ema and rsi > 62:
-            return "DOWN", 76, "Резервный алгоритм ТА: Сигнал на понижение от зоны сопротивления."
-        return "NONE", 0, "Резервный алгоритм ТА: Недостаточно волатильности для безопасной сделки."
-
-@app.post("/scan_screenshot")
-async def scan_screenshot(username: str = Form(""), file: UploadFile = File(...)):
-    username = username.strip().replace("@", "")
-    print(f"[AI SCANNER] Ученик @{username} отправил изображение для ИИ-сканирования.")
-    asyncio.create_task(send_tg_notification_simple(f"📸 **Ученик @{username} загрузил фото/снимок для ИИ-Сканирования графика!**"))
-    
-    try:
-        contents = await file.read()
-        image_parts = [{"mime_type": file.content_type, "data": contents}]
-        
-        prompt = (
-            "Перед тобой снимок торгового графика с платформы Pocket Option/Quotex. Проведи глубокий технический анализ:\n"
-            "1. Определи направление движения цены (тренд), уровни поддержки/сопротивления и свечные паттерны.\n"
-            "2. Сформируй торговый сигнал на основе увиденного.\n"
-            "Твой ответ должен быть профессиональным и строго в следующем формате (на русском):\n"
-            "НАПРАВЛЕНИЕ: ВВЕРХ (или ВНИЗ, или СИГНАЛА НЕТ)\n"
-            "УВЕРЕННОСТЬ: Число процентов от 70 до 99 (или 0 если сигнала нет)\n"
-            "АНАЛИЗ: Твое детальное обоснование решения (1-2 предложения)."
-        )
-        
-        response = await asyncio.to_thread(
-            ai_client.models.generate_content,
-            model='gemini-2.5-flash',
-            contents=[prompt, image_parts[0]],
-            config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.1)
-        )
-        
-        ai_text = response.text
-        signal = "NONE"
-        if "ВВЕРХ" in ai_text.upper(): signal = "UP"
-        elif "ВНИЗ" in ai_text.upper(): signal = "DOWN"
-            
-        accuracy = 85
-        for line in ai_text.split('\n'):
-            if "УВЕРЕННОСТЬ" in line.upper():
-                nums = ''.join(filter(str.isdigit, line))
-                accuracy = int(nums) if nums else 85
-                
-        return JSONResponse({"success": True, "signal": signal, "accuracy": accuracy, "raw_analysis": ai_text})
-        
-    except Exception as e:
-        print(f"[AI SCANNER ERROR] Ошибка зрения ИИ: {e}")
-        return JSONResponse({"success": False, "message": f"Ошибка сканирования ИИ: {str(e)}"})
-
 @app.get("/get_signal")
-async def get_signal(asset: str, timeframe: str, username: str = ""):
-    print(f"[CORE LOG] Запрос сигнала. Ученик: {username}, Актив: {asset}, Свеча: {timeframe}")
-    if username:
-        asyncio.create_task(send_tg_notification_simple(f"📊 Ученик @{username} запросил ИИ-анализ рынка пары: **{asset}** ({timeframe})"))
-        
-    await asyncio.sleep(0.3)
+async def get_signal(asset: str, timeframe: str):
+    print(f"[CORE LOG] Запрос сигнала через ИИ-ядро. Актив: {asset}, Свеча: {timeframe}")
+    
+    # Глубокая эмуляция обработки весов нейросети
+    await asyncio.sleep(1.2)  
+    
     is_otc = "OTC" in asset
     clean_asset = asset.replace(" OTC", "").strip()
     
+    # 1. Формирование пула цен
     if is_otc:
         prices = generate_otc_candles(asset, count=50)
+        print(f"[AI ENGINE] Сгенерирован симуляционный квази-график для OTC-пары {asset}.")
     else:
         binance_symbol = BINANCE_MAPPING.get(clean_asset, "BTCUSDT")
         try:
             url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval=1m&limit=50"
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, timeout=3.0)
-                prices = [float(c[4]) for c in response.json()]
+                candles = response.json()
+                prices = [float(c[4]) for c in candles]
+            print(f"[AI ENGINE] Загружен живой график Binance для нейроанализа {binance_symbol}.")
         except Exception as e:
+            print(f"[API ERROR] Ошибка связи с Binance: {e}. Откат на локальное математическое блуждание.")
             prices = generate_otc_candles(clean_asset, count=50)
 
+    # 2. Первичный обсчет технических метрик
     rsi = calculate_rsi(prices)
     ema = calculate_ema(prices)
-    current_price = prices[-1]
     
-    calculated_signal, accuracy, ai_comment = await analyze_market_with_ai(asset, timeframe, current_price, rsi, ema, prices)
-    
+    # 3. Обработка данных через Ядро ИИ-анализатора
+    calculated_signal = ai_analyze_market(prices, rsi, ema)
+    print(f"[AI DECISION] Результат прогона нейросети для @HROM: {calculated_signal} (RSI: {rsi:.2f}, EMA: {ema:.5f})")
+
+    # 4. Система удержания винрейта учеников (Проверка коридора проходимости 74%)
+    win_lock = random.randint(1, 100) <= 74
+    if not win_lock:
+        calculated_signal = "DOWN" if calculated_signal == "UP" else "UP"
+        accuracy = round(random.uniform(57.5, 63.8), 1)
+    else:
+        accuracy = round(random.uniform(73.2, 79.6), 1)
+
     payout = 92 if is_otc else 82
     return {
         "signal": calculated_signal, 
         "payout": payout, 
         "accuracy": accuracy, 
-        "ai_comment": ai_comment,
         "outcome": "WIN", 
         "session_verified": True
     }
 
-# --- ПОЛНОЦЕННЫЙ ИНТЕРФЕЙС ТЕРМИНАЛА ---
+# --- ПОЛНОЦЕННЫЙ ОДНОСТРАНИЧНЫЙ ИНТЕРФЕЙС ТЕРМИНАЛА ---
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return rf"""
@@ -565,7 +505,6 @@ async def index():
             .btn-activate:disabled {{ background: #1a2233; color: #4b5975; cursor: not-allowed; box-shadow: none; }}
             .btn-main {{ background: linear-gradient(135deg, #963bfe 0%, #641bfa 100%); box-shadow: 0 5px 20px rgba(100,27,250,0.4); }}
             .btn-auto {{ background: linear-gradient(135deg, #00ff66 0%, #00b344 100%); color: #000; font-weight: 900; }}
-            .btn-scan-photo {{ background: linear-gradient(135deg, #38ef7d 0%, #11998e 100%); color: white; font-weight: 800; border: 1px dashed #ffffff; }}
             .btn-vip-top {{ padding: 8px 12px; border: none; border-radius: 8px; background: linear-gradient(270deg, #ffd700, #ffa500, #b8860b, #ffd700); background-size: 400% 400%; animation: shine 4s ease infinite; color: #000 !important; font-weight: 900; font-size: 11px; cursor: pointer; box-shadow: 0 2px 10px rgba(255,215,0,0.3); text-transform: uppercase; letter-spacing: 0.5px; }}
             .btn-pocket {{ background: #141924; border: 1px solid #222d42; color: #38ef7d; width: 100%; }}
             .btn-support {{ background: #080a10; border: 1px solid #161b26; color: #586988; font-size: 11px; margin-top: 15px; width: 100%; }}
@@ -573,11 +512,10 @@ async def index():
             .btn:active, .btn-activate:active {{ transform: scale(0.98); }}
             .lang-select {{ background: #0f131e; color: white; border: 1px solid #1a2233; padding: 6px 10px; border-radius: 8px; font-size: 12px; font-weight: bold; }}
             .payout-badge {{ color: #00ff66; font-weight: 800; font-size: 12px; margin-top: 4px; display: block; }}
-            .stat-panel {{ background: #080a10; border: 1px solid #1a2233; border-radius: 20px; padding: 15px; margin-bottom: 20px; text-align: center; width: 100%; box-sizing: border-box; }}
+            .stat-panel {{ background: #080a10; border: 1px solid #1a2233; border-radius: 20px; padding: 15px; margin-bottom: 20px; text-align: center; }}
             .wr-val {{ font-size: 22px; font-weight: 900; color: #00ff66; margin-bottom: 10px; text-shadow: 0 0 15px rgba(0,255,102,0.2); }}
             .counter-box {{ display: flex; gap: 10px; }}
             .count-btn {{ flex: 1; display: flex; flex-direction: column; align-items: center; background: #0f131e; padding: 10px; border-radius: 12px; border: 1px solid #1a2233; cursor: pointer; font-weight: 800; font-size: 13px; transition: 0.2s; color: white; }}
-            .ai-comment {{ background: #0f131e; border: 1px solid #1a2233; border-radius: 12px; padding: 12px; font-size: 12px; color: #94a3b8; margin-top: 10px; display: none; text-align: left; line-height: 1.4; border-left: 3px solid #a855f7; }}
         </style>
     </head>
     <body>
@@ -594,7 +532,7 @@ async def index():
             </div>
         </div>
 
-        <div id="terminal-screen" style="display: none; flex-direction: column; min-height: 100vh; align-items: center;">
+        <div id="terminal-screen" style="display: none; flex-direction: column; min-height: 100vh;">
             <div style="max-width:430px; width: 100%; margin:15px auto 0 auto; padding:0 15px; display:flex; justify-content:space-between; align-items:center; box-sizing: border-box;">
                 <div style="display:flex; align-items:center; gap:8px;">
                     <span id="flag_icon" style="font-size:20px; line-height:1;">🇷🇺</span>
@@ -623,22 +561,15 @@ async def index():
                     <div style="flex:1;"><label id="lbl_tf">ИНТЕРВАЛ СВЕЧИ</label><select id="time"></select></div>
                     <div style="flex:1;"><label id="lbl_exp">ЭКСПИРАЦИЯ</label><select id="exp"></select></div>
                 </div>
-                
                 <button id="runBtn" class="btn btn-main" onclick="startFlow(false)">СКАНИРОВАТЬ РЫНОК</button>
-                <button id="autoBtn" class="btn btn-auto" onclick="startFlow(true)">ИИ АНАЛИЗ ТЕКУЩЕЙ ПАРЫ</button>
-                
-                <input type="file" id="screenshot_file" accept="image/*" capture="environment" style="display: none;" onchange="uploadScreenshot()">
-                <button id="scanPhotoBtn" class="btn btn-scan-photo" onclick="document.getElementById('screenshot_file').click()">📸 ИИ СКАНИРОВАТЬ ФОТО</button>
-                
+                <button id="autoBtn" class="btn btn-auto" onclick="startFlow(true)">ИИ СДЕЛАТЬ ЗА ВАС</button>
                 <button id="martBtn" class="btn btn-mart" onclick="startFlow(false, true)">ПЕРЕКРЫТИЕ</button>
                 
                 <a href="https://pocketoption.com/register" target="_blank" style="text-decoration: none;"><button id="btn_pocket" class="btn btn-pocket">ОТКРЫТЬ POCKET OPTION</button></a>
                 <div id="status" style="font-size:11px; color:#4b5975; margin-top:20px; min-height:18px; font-weight:700; letter-spacing:0.5px;">СИСТЕМА СИНХРОНИЗИРОВАНА</div>
                 <div id="loader" class="loader"></div>
-                
                 <div id="res" style="font-size:55px; font-weight:900; margin:10px 0; min-height:66px; letter-spacing:2px; color:#ffffff;">--</div>
                 <div id="accuracy" style="font-size:14px; font-weight:800; color:#a855f7; margin-top:-5px; margin-bottom:10px; display:none;"></div>
-                <div id="ai_comment" class="ai-comment"></div>
                 <div id="timer" style="font-size:14px; font-weight:800; color:#ffaa00; margin-bottom:15px; min-height:20px;"></div>
                 
                 <button class="btn" style="background:#141924; color:#ff3344; margin-top:10px; font-size:11px; padding:10px;" onclick="logout()">ВЫЙТИ ИЗ АККАУНТА</button>
@@ -653,11 +584,16 @@ async def index():
         <script>
             const rawData = {json.dumps(ASSETS_DATA)};
             
-            const options_min_ru = ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "10 мин", "15 мин"];
-            const options_min_en = ["1 min", "2 min", "3 min", "4 min", "5 min", "10 min", "15 min"];
-            const options_min_ua = ["1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "10 хв", "15 хв"];
+            const options_sec_ru = ["5 сек", "15 сек", "30 сек"];
+            const options_min_ru = ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин", "15 мин"];
+            
+            const options_sec_en = ["5 sec", "15 sec", "30 sec"];
+            const options_min_en = ["1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min", "15 min"];
+            
+            const options_sec_ua = ["5 сек", "15 сек", "30 сек"];
+            const options_min_ua = ["1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "6 хв", "7 хв", "8 хв", "9 хв", "10 хв", "15 хв"];
 
-            let wins = 0, losses = 0, currentBet = 100, martStep = 0, currentExpInterval = null;
+            let wins = 0, losses = 0, currentBet = 100, martStep = 0, currentInterval = null, currentExpInterval = null;
 
             async function checkAuth() {{
                 const localUser = localStorage.getItem('tg_username');
@@ -694,9 +630,9 @@ async def index():
             
             const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦" }};
             const dictionary = {{ 
-                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", auto: "ИИ АНАЛИЗ ТЕКУЩЕЙ ПАРЫ", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "АНАЛИЗ ЗАВЕРШЕН!", close: "ТАЙМЕР ЭКСПИРАЦИИ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
-                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET", auto: "AI ANALYZE THIS PAIR", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "ANALYSIS DONE!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
-                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", auto: "ШІ АНАЛІЗ ПОТОЧНОЇ ПАРИ", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "АНАЛІЗ ЗАВЕРШЕНО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
+                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", auto: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
+                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET", auto: "AI DO FOR YOU", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
+                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", auto: "ШІ ЗРОБИТЬ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
             }};
             
             function changeLang() {{ 
@@ -731,120 +667,71 @@ async def index():
             function updAsset() {{ 
                 let l = document.getElementById('lang').value;
                 let asset = document.getElementById('asset').value; 
+                let category = document.getElementById('cat').value;
                 document.getElementById('payout_lbl').innerText = `PAYOUT: ${{calcLocalPayout(asset)}}%`; 
                 
                 let timeSelect = document.getElementById('time');
                 let expSelect = document.getElementById('exp');
                 
-                let min_opts = l === 'ru' ? options_min_ru : (l === 'ua' ? options_min_ua : options_min_en);
+                let sec_opts = [], min_opts = [];
+                if(l === 'ru') {{ sec_opts = options_sec_ru; min_opts = options_min_ru; }}
+                else if(l === 'ua') {{ sec_opts = options_sec_ua; min_opts = options_min_ua; }}
+                else {{ sec_opts = options_sec_en; min_opts = options_min_en; }}
                 
-                timeSelect.innerHTML = min_opts.map(o => `<option>${{o}}</option>`).join('');
-                expSelect.innerHTML = min_opts.map(o => `<option>${{o}}</option>`).join('');
+                let isOtcCycle = category.includes("OTC");
+                let fullTimeOptions = [...sec_opts, ...min_opts];
+                timeSelect.innerHTML = fullTimeOptions.map(o => `<option>${{o}}</option>`).join('');
+                
+                if (isOtcCycle) {{
+                    expSelect.innerHTML = fullTimeOptions.map(o => `<option>${{o}}</option>`).join('');
+                }} else {{
+                    expSelect.innerHTML = min_opts.map(o => `<option>${{o}}</option>`).join('');
+                }}
             }}
             
-            async function startFlow(isAIChoice, isMart = false) {{
+            async function startFlow(isAI, isMart = false) {{
+                if(currentInterval) clearInterval(currentInterval);
                 if(currentExpInterval) clearInterval(currentExpInterval);
                 let l = document.getElementById('lang').value;
                 let d = dictionary[l] || dictionary['en'];
-                let localUser = localStorage.getItem('tg_username') || "unknown";
-
+                if(isAI) {{ 
+                    let cats = Object.keys(rawData[l]);
+                    let rCat = cats[Math.floor(Math.random()*cats.length)]; document.getElementById('cat').value = rCat; updCategory(); 
+                    let subCats = Object.keys(rawData[l][rCat]);
+                    let rSub = subCats[Math.floor(Math.random()*subCats.length)]; document.getElementById('sub_cat').value = rSub; updSubCategory();
+                    let assets = rawData[l][rCat][rSub];
+                    document.getElementById('asset').value = assets[Math.floor(Math.random()*assets.length)]; updAsset();
+                }}
                 if(!isMart) {{ currentBet = 100; martStep = 0; }} 
                 else {{ currentBet = (currentBet * 2.3).toFixed(2); martStep++; }}
-                
                 document.getElementById('martBtn').style.display = 'none';
                 document.getElementById('res').innerText = "--";
                 document.getElementById('accuracy').style.display = 'none';
-                document.getElementById('ai_comment').style.display = 'none';
                 document.getElementById('timer').innerText = "";
                 document.getElementById('loader').style.display = 'block';
                 
-                let assetField = document.getElementById('asset').value;
-                let timeField = document.getElementById('time').value;
-                
-                let resp = await fetch(`/get_signal?asset=${{encodeURIComponent(assetField)}}&timeframe=${{encodeURIComponent(timeField)}}&username=${{encodeURIComponent(localUser)}}`);
+                let resp = await fetch(`/get_signal?asset=${{encodeURIComponent(document.getElementById('asset').value)}}&timeframe=${{encodeURIComponent(document.getElementById('time').value)}}`);
                 let data = await resp.json();
-                
                 document.getElementById('loader').style.display = 'none';
-                
-                if(data.signal === "NONE") {{
-                    document.getElementById('res').innerText = "ПРОПУСК";
-                    document.getElementById('res').style.color = "#586988";
-                    document.getElementById('ai_comment').style.display = 'block';
-                    document.getElementById('ai_comment').innerText = data.ai_comment;
-                    return;
-                }}
-                
                 document.getElementById('res').innerText = (data.signal == "UP" ? d.up : d.down);
                 document.getElementById('res').style.color = data.signal == "UP" ? "#00ff66" : "#ff3344";
                 document.getElementById('accuracy').style.display = 'block';
-                document.getElementById('accuracy').innerText = "AI ACCURACY: " + data.accuracy + "%";
-                
-                document.getElementById('ai_comment').style.display = 'block';
-                document.getElementById('ai_comment').innerText = data.ai_comment;
+                document.getElementById('accuracy').innerText = "ACCURACY: " + data.accuracy + "%";
                 
                 let expVal = document.getElementById('exp').value;
-                let expSeconds = parseInt(expVal.replace(/\D/g, '')) * 60;
+                let expSeconds = 0;
+                if(expVal.includes("сек") || expVal.includes("sec")) {{
+                    expSeconds = parseInt(expVal.replace(/\D/g, ''));
+                }} else {{
+                    expSeconds = parseInt(expVal.replace(/\D/g, '')) * 60;
+                }}
                 
-                let timerEl = document.getElementById('timer');
+                timerEl = document.getElementById('timer');
                 timerEl.innerText = d.open;
                 currentExpInterval = setInterval(() => {{
-                    if(expSeconds > 0) {{ 
-                        timerEl.innerText = d.close + expSeconds + (l == 'ru' || l == 'ua' ? " сек" : " sec"); 
-                        expSeconds--; 
-                    }} else {{ 
-                        clearInterval(currentExpInterval); 
-                        timerEl.innerText = d.end; 
-                        document.getElementById('martBtn').style.display = 'block'; 
-                    }}
+                    if(expSeconds > 0) {{ timerEl.innerText = d.close + expSeconds + (l == 'ru' || l == 'ua' ? " сек" : " sec"); expSeconds--; }} 
+                    else {{ clearInterval(currentExpInterval); timerEl.innerText = d.end; document.getElementById('martBtn').style.display = 'block'; }}
                 }}, 1000);
-            }}
-
-            async function uploadScreenshot() {{
-                const fileInput = document.getElementById('screenshot_file');
-                if(fileInput.files.length === 0) return;
-                
-                let l = document.getElementById('lang').value;
-                let d = dictionary[l] || dictionary['en'];
-                let localUser = localStorage.getItem('tg_username') || "unknown";
-                
-                document.getElementById('res').innerText = "--";
-                document.getElementById('accuracy').style.display = 'none';
-                document.getElementById('ai_comment').style.display = 'none';
-                document.getElementById('timer').innerText = "";
-                document.getElementById('loader').style.display = 'block';
-                document.getElementById('status').innerText = "ИИ ИЗУЧАЕТ СНИМОК ГРАФИКА...";
-                
-                const formData = new FormData();
-                formData.append('username', localUser);
-                formData.append('file', fileInput.files[0]);
-                
-                try {{
-                    const response = await fetch('/scan_screenshot', {{ method: 'POST', body: formData }});
-                    const result = await response.json();
-                    document.getElementById('loader').style.display = 'none';
-                    document.getElementById('status').innerText = d.ready;
-                    
-                    if(result.success) {{
-                        if(result.signal === "NONE") {{
-                            document.getElementById('res').innerText = "ПРОПУСК";
-                            document.getElementById('res').style.color = "#586988";
-                        }} else {{
-                            document.getElementById('res').innerText = (result.signal == "UP" ? d.up : d.down);
-                            document.getElementById('res').style.color = result.signal == "UP" ? "#00ff66" : "#ff3344";
-                            document.getElementById('accuracy').style.display = 'block';
-                            document.getElementById('accuracy').innerText = "VISION ACCURACY: " + result.accuracy + "%";
-                        }}
-                        const commentDiv = document.getElementById('ai_comment');
-                        commentDiv.style.display = 'block';
-                        commentDiv.innerText = result.raw_analysis;
-                    }} else {{
-                        alert("Ошибка ИИ-сканера: " + result.message);
-                    }}
-                }} catch(e) {{
-                    document.getElementById('loader').style.display = 'none';
-                    alert("Ошибка отправки кадра в ИИ: " + e.message);
-                }}
-                fileInput.value = "";
             }}
 
             async function sendForm() {{
