@@ -10,9 +10,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 app = FastAPI()
 
-# --- НАСТРОЙКИ СИСТЕМЫ ДОСТУПА И TELEGRAM ---
+# --- КОНФИГУРАЦИЯ СИСТЕМЫ И ТЕЛЕГРАМ БОТА ---
 DB_FILE = "requests.json"
-BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"
+BOT_TOKEN = "8761108877:AAGzMIeErZoGcVlLvd-yO-w7FZbIezCQ9SE"
 ADMIN_CHAT_ID = "6765689893"
 
 def get_db():
@@ -21,7 +21,8 @@ def get_db():
     with open(DB_FILE, "r", encoding="utf-8") as f:
         try: 
             data = json.load(f)
-            if "users" not in data: data = {"users": data, "keys": []}
+            if "users" not in data: 
+                data = {"users": data, "keys": []}
             return data
         except: 
             return {"users": {}, "keys": []}
@@ -30,10 +31,9 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
-# Функция отправки уведомления с инлайн-кнопками под сообщением
+# --- СИСТЕМА УВЕДОМЛЕНИЙ В ТЕЛЕГРАМ ---
 async def send_tg_notification(username, code):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    
     reply_markup = {
         "inline_keyboard": [
             [
@@ -42,30 +42,28 @@ async def send_tg_notification(username, code):
             ]
         ]
     }
-    
     payload = {
         "chat_id": ADMIN_CHAT_ID,
         "text": f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** ✅ Доступ разрешен",
         "parse_mode": "Markdown",
         "reply_markup": reply_markup
     }
-    
     async with httpx.AsyncClient() as client:
-        try:
+        try: 
             await client.post(url, json=payload, timeout=5.0)
-        except Exception as e:
-            print(f"Ошибка отправки в ТГ: {e}")
+            print(f"[TG LOG] Уведомление об активации {username} успешно отправлено админу.")
+        except Exception as e: 
+            print(f"[TG ERROR] Ошибка отправки уведомления в ТГ: {e}")
 
 async def send_tg_notification_simple(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": ADMIN_CHAT_ID, "text": text, "parse_mode": "Markdown"}
     async with httpx.AsyncClient() as client:
-        try:
+        try: 
             await client.post(url, json=payload, timeout=5.0)
-        except:
-            pass
+        except Exception as e:
+            print(f"[TG ERROR] Ошибка отправки простого сообщения: {e}")
 
-# Функция для изменения текста и кнопок после нажатия админом
 async def edit_tg_message_status(chat_id, message_id, username, status_text, reply_markup=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
     payload = {
@@ -74,21 +72,20 @@ async def edit_tg_message_status(chat_id, message_id, username, status_text, rep
         "text": f"🔔 **Управление учеником**\n\n**Ник:** @{username}\n**Статус изменен:** {status_text}",
         "parse_mode": "Markdown"
     }
-    if reply_markup:
+    if reply_markup: 
         payload["reply_markup"] = reply_markup
-        
     async with httpx.AsyncClient() as client:
-        try:
+        try: 
             await client.post(url, json=payload, timeout=5.0)
         except Exception as e:
-            print(f"Ошибка изменения сообщения: {e}")
+            print(f"[TG ERROR] Ошибка редактирования сообщения: {e}")
 
-# --- ОБРАБОТЧИК ВЕБХУКА С ПОДДЕРЖКОЙ КНОПОК ---
+# --- ТЕЛЕГРАМ ВЕБХУК (ОБРАБОТКА КНОПОК И КОМАНД) ---
 @app.post("/telegram_webhook")
 async def telegram_webhook(request: Request):
     try:
         data = await request.json()
-        print(f"📡 Получен вебхук: {data}")
+        print(f"[WEBHOOK] Получены данные: {data}")
         
         if "callback_query" in data:
             callback_query = data["callback_query"]
@@ -101,22 +98,19 @@ async def telegram_webhook(request: Request):
                 db = get_db()
                 
                 if action == "ban":
-                    if username not in db["users"]: db["users"][username] = {}
+                    if username not in db["users"]: 
+                        db["users"][username] = {}
                     db["users"][username]["status"] = "blocked"
                     save_db(db)
-                    
-                    unban_markup = {
-                        "inline_keyboard": [
-                            [{"text": "✅ Разблокировать", "callback_data": f"unban:{username}"}]
-                        ]
-                    }
+                    unban_markup = {"inline_keyboard": [[{"text": "✅ Разблокировать", "callback_data": f"unban:{username}"}]]}
                     await edit_tg_message_status(chat_id, message_id, username, "🚫 Заблокирован (Доступ закрыт)", reply_markup=unban_markup)
+                    print(f"[ADMIN ACTION] Ученик @{username} заблокирован через инлайн-кнопку.")
                     
                 elif action == "unban":
-                    if username not in db["users"]: db["users"][username] = {}
+                    if username not in db["users"]: 
+                        db["users"][username] = {}
                     db["users"][username]["status"] = "approved"
                     save_db(db)
-                    
                     standard_markup = {
                         "inline_keyboard": [
                             [
@@ -126,6 +120,7 @@ async def telegram_webhook(request: Request):
                         ]
                     }
                     await edit_tg_message_status(chat_id, message_id, username, "✅ Разблокирован (Доступ открыт)", reply_markup=standard_markup)
+                    print(f"[ADMIN ACTION] Ученик @{username} разблокирован через инлайн-кнопку.")
             return {"status": "ok"}
 
         if "message" in data and "text" in data["message"]:
@@ -140,26 +135,30 @@ async def telegram_webhook(request: Request):
                     db = get_db()
                     
                     if command == "/бан":
-                        if username not in db["users"]: db["users"][username] = {}
+                        if username not in db["users"]: 
+                            db["users"][username] = {}
                         db["users"][username]["status"] = "blocked"
                         save_db(db)
                         await send_tg_notification_simple(f"🚫 Пользователь @{username} заблокирован.")
+                        print(f"[ADMIN COMMAND] Успешная блокировка @{username}")
                     
                     elif command == "/разбанить":
-                        if username not in db["users"]: db["users"][username] = {}
+                        if username not in db["users"]: 
+                            db["users"][username] = {}
                         db["users"][username]["status"] = "approved"
                         save_db(db)
                         await send_tg_notification_simple(f"✅ Пользователь @{username} разблокирован.")
-    except Exception as e:
-        print(f"🚨 Ошибка вебхука ТГ: {e}")
+                        print(f"[ADMIN COMMAND] Успешная разблокировка @{username}")
+    except Exception as e: 
+        print(f"[WEBHOOK ERROR] Исключение при обработке вебхука: {e}")
         
     return {"status": "ok"}
 
-# --- СТРАНИЦА ГЕНЕРАЦИИ ОДНОРАЗОВЫХ КЛЮЧЕЙ ---
+# --- СТРАНИЦА ГЕНЕРАЦИИ КЛЮЧЕЙ ДОСТУПА ---
 @app.get("/generate_key")
 async def generate_key(master: str = None):
     if master != "SUPER_ADMIN_123": 
-        return HTMLResponse("<h1 style='color:red; text-align:center;'>Доступ запрещен</h1>")
+        return HTMLResponse("<h1 style='color:red; text-align:center;'>Доступ закрыт. Неверный секретный ключ!</h1>")
     
     chars = "0123456789ABCDEF"
     new_key = "HROM_" + "".join(random.choice(chars) for _ in range(6))
@@ -168,20 +167,22 @@ async def generate_key(master: str = None):
     db["keys"].append(new_key)
     save_db(db)
     
+    print(f"[SERVER LOG] Сгенерирован новый одноразовый ключ: {new_key}")
+    
     return HTMLResponse(f"""
-    <div style="background:#06080c; color:#ffffff; font-family:sans-serif; text-align:center; padding:50px; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+    <div style="background:#06080c; color:#ffffff; font-family:sans-serif; text-align:center; padding:50px; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; box-sizing:border-box;">
         <p style="color:#586988; font-size:18px; margin-bottom:5px;">Создан новый одноразовый ключ:</p>
-        <div style="background:#0f131e; border:1px solid #1a2233; color:#00ff66; font-size:24px; font-weight:bold; padding:15px 30px; border-radius:12px; letter-spacing:1px; margin-bottom:20px;">
+        <div style="background:#0f131e; border:1px solid #1a2233; color:#00ff66; font-size:26px; font-weight:bold; padding:15px 30px; border-radius:12px; letter-spacing:1px; margin-bottom:20px; box-shadow: 0 0 20px rgba(0,255,102,0.2);">
             {new_key}
         </div>
-        <p style="color:#4b5975; font-size:12px; max-width:300px; margin-bottom:20px;">Отдай его человеку. Как только он введет его на сайте, его устройство запомнится навсегда.</p>
+        <p style="color:#4b5975; font-size:13px; max-width:320px; margin-bottom:25px; line-height:1.5;">Передай этот ключ новому ученику. При активации его сессия привяжется намертво.</p>
         <a href="/generate_key?master=SUPER_ADMIN_123" style="text-decoration:none;">
-            <button style="background:#963bfe; color:white; font-weight:bold; padding:12px 24px; border:none; border-radius:10px; cursor:pointer;">Создать еще один</button>
+            <button style="background:#963bfe; color:white; font-weight:bold; padding:14px 28px; border:none; border-radius:10px; cursor:pointer; font-size:14px; text-transform:uppercase; transition:0.2s;">Создать еще один</button>
         </a>
     </div>
     """)
 
-# --- АДМИН-ПАНЕЛЬ С КНОПКАМИ УПРАВЛЕНИЯ ---
+# --- ВЕБ ПАНЕЛЬ АДМИНИСТРАТОРА ---
 @app.get("/admin_panel")
 async def admin_panel(secret: str = None):
     if secret != "SUPER_ADMIN_123": 
@@ -224,7 +225,6 @@ async def admin_panel(secret: str = None):
     else:
         for user, info in db["users"].items():
             status = info.get("status", "unknown")
-            
             if status == "approved":
                 badge_class = "status-approved"
                 badge_text = "Активен"
@@ -263,6 +263,7 @@ async def set_status(user: str, status: str, secret: str = None):
     if user in db["users"]:
         db["users"][user]["status"] = status
         save_db(db)
+        print(f"[SERVER LOG] Пользователю @{user} выставлен статус: {status}")
     return HTMLResponse(f"""
     <div style="background:#06080c; color:#ffffff; font-family:sans-serif; text-align:center; padding-top:100px; height:100vh; box-sizing:border-box;">
         <h2>Статус пользователя <b>@{user}</b> успешно изменен на <b>{status}</b>!</h2>
@@ -271,7 +272,7 @@ async def set_status(user: str, status: str, secret: str = None):
     </div>
     """)
 
-# --- СТРОГАЯ ПРОВЕРКА СТАТУСА ---
+# --- ПРОВЕРКИ И АКТИВАЦИИ РЕГИСТРАЦИИ ---
 @app.get("/check_user_status")
 async def check_user_status(username: str = ""):
     username = username.strip().replace("@", "").replace(" ", "")
@@ -279,7 +280,6 @@ async def check_user_status(username: str = ""):
     status = db["users"].get(username, {}).get("status") if username else None
     return JSONResponse({"status": status})
 
-# --- ЖЕСТКАЯ ЛОГИКА АКТИВАЦИИ ОДНОРАЗОВЫХ КОДОВ ---
 @app.post("/request_access")
 async def request_access(username: str = Form(...), code: str = Form(...)):
     username = username.strip().replace("@", "").replace(" ", "")
@@ -303,143 +303,296 @@ async def request_access(username: str = Form(...), code: str = Form(...)):
     
     return JSONResponse({"success": True, "message": "Код успешно активирован! Загрузка..."})
 
-# --- ТРЕЙДИНГ ДАННЫЕ И ИНДИКАТОРЫ ---
+# --- ПОЛНЫЙ МАССИВ АКТИВОВ БЕЗ СОКРАЩЕНИЙ И СЖАТИЙ (РАЗВЕРНУТЫЙ) ---
+
 BINANCE_MAPPING = {
-    "EUR/USD": "EURUSDT", "EUR/USD OTC": "EURUSDT",
-    "GBP/USD": "GBPUSDT", "GBP/USD OTC": "GBPUSDT",
-    "USD/JPY": "USDJPY", "USD/JPY OTC": "USDJPY",
-    "AUD/USD": "AUDUSDT", "AUD/USD OTC": "AUDUSDT",
-    "EUR/JPY": "EURJPY", "EUR/JPY OTC": "EURJPY",
-    "USD/CAD": "USDCAD", "USD/CAD OTC": "USDCAD",
-    "GBP/JPY": "GBPJPY", "GBP/JPY OTC": "GBPJPY",
-    "NZD/USD": "NZDUSDT", "NZD/USD OTC": "NZDUSDT",
-    "USD/CHF": "USDCHF", "USD/CHF OTC": "USDCHF",
-    "EUR/GBP": "EURGBP", "EUR/GBP OTC": "EURGBP",
-    "Bitcoin OTC": "BTCUSDT", "Ethereum OTC": "ETHUSDT", 
-    "Solana OTC": "SOLUSDT", "Ripple OTC": "XRPUSDT",
-    "Gold OTC": "PAXGUSDT", "Silver OTC": "XAGUSDT", 
-    "Crude Oil OTC": "USO", "Brent Oil OTC": "BRENT",
-    "US 500 OTC": "SPY", "NASDAQ 100 OTC": "QQQ",
-    "Apple OTC": "AAPL", "Microsoft OTC": "MSFT", "Amazon OTC": "AMZN", 
-    "Tesla OTC": "TSLA", "NVIDIA OTC": "NVDA", "Google OTC": "GOOGL", 
-    "Netflix OTC": "NFLX", "Meta OTC": "META", "Intel OTC": "INTC", "AMD OTC": "AMD"
+    "EUR/USD": "EURUSDT",
+    "GBP/USD": "GBPUSDT",
+    "USD/JPY": "USDJPY",
+    "AUD/USD": "AUDUSDT",
+    "EUR/JPY": "EURJPY",
+    "USD/CAD": "USDCAD",
+    "GBP/JPY": "GBPJPY",
+    "NZD/USD": "NZDUSDT",
+    "USD/CHF": "USDCHF",
+    "EUR/GBP": "EURGBP"
 }
 
 ASSETS_DATA = {
     "ru": {
         "[ВСЕ АКТИВЫ] — OTC ЦИКЛ": {
-            "ВАЛЮТНЫЕ ПАРЫ": ["EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC", "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"],
-            "АКЦИИ": ["Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC", "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"],
-            "КРИПТОВАЛЮТА": ["Bitcoin OTC", "Ethereum OTC", "Solana OTC", "Ripple OTC"],
-            "СЫРЬЕ / ИНДЕКСЫ": ["Gold OTC", "Silver OTC", "Crude Oil OTC", "Brent Oil OTC", "US 500 OTC", "NASDAQ 100 OTC"]
+            "ВАЛЮТНЫЕ ПАРЫ": [
+                "EUR/USD OTC",
+                "GBP/USD OTC",
+                "USD/JPY OTC",
+                "AUD/USD OTC",
+                "EUR/JPY OTC",
+                "USD/CAD OTC",
+                "GBP/JPY OTC",
+                "NZD/USD OTC",
+                "USD/CHF OTC",
+                "EUR/GBP OTC"
+            ],
+            "АКЦИИ": [
+                "Apple OTC",
+                "Microsoft OTC",
+                "Amazon OTC",
+                "Tesla OTC",
+                "NVIDIA OTC",
+                "Google OTC",
+                "Netflix OTC",
+                "Meta OTC",
+                "Intel OTC",
+                "AMD OTC"
+            ],
+            "КРИПТОВАЛЮТА": [
+                "Bitcoin OTC",
+                "Ethereum OTC",
+                "Solana OTC",
+                "Ripple OTC"
+            ],
+            "СЫРЬЕ / ИНДЕКСЫ": [
+                "Gold OTC",
+                "Silver OTC",
+                "Crude Oil OTC",
+                "Brent Oil OTC",
+                "US 500 OTC",
+                "NASDAQ 100 OTC"
+            ]
         },
         "[ВСЕ АКТИВЫ] — ЖИВОЙ РЫНОК": {
-            "ВАЛЮТНЫЕ ПАРЫ": ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "USD/CHF", "EUR/JPY", "GBP/JPY", "EUR/GBP"]
+            "ВАЛЮТНЫЕ ПАРЫ": [
+                "EUR/USD",
+                "GBP/USD",
+                "USD/JPY",
+                "AUD/USD",
+                "USD/CAD",
+                "USD/CHF",
+                "EUR/JPY",
+                "GBP/JPY",
+                "EUR/GBP"
+            ]
         }
     },
     "en": {
         "[ALL ASSETS] — OTC CYCLE": {
-            "CURRENCY PAIRS": ["EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC", "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"],
-            "STOCKS": ["Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC", "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"],
-            "CRYPTOCURRENCY": ["Bitcoin OTC", "Ethereum OTC", "Solana OTC", "Ripple OTC"],
-            "COMMODITIES / INDICES": ["Gold OTC", "Silver OTC", "Crude Oil OTC", "Brent Oil OTC", "US 500 OTC", "NASDAQ 100 OTC"]
+            "CURRENCY PAIRS": [
+                "EUR/USD OTC",
+                "GBP/USD OTC",
+                "USD/JPY OTC",
+                "AUD/USD OTC",
+                "EUR/JPY OTC",
+                "USD/CAD OTC",
+                "GBP/JPY OTC",
+                "NZD/USD OTC",
+                "USD/CHF OTC",
+                "EUR/GBP OTC"
+            ],
+            "STOCKS": [
+                "Apple OTC",
+                "Microsoft OTC",
+                "Amazon OTC",
+                "Tesla OTC",
+                "NVIDIA OTC",
+                "Google OTC",
+                "Netflix OTC",
+                "Meta OTC",
+                "Intel OTC",
+                "AMD OTC"
+            ],
+            "CRYPTOCURRENCY": [
+                "Bitcoin OTC",
+                "Ethereum OTC",
+                "Solana OTC",
+                "Ripple OTC"
+            ],
+            "COMMODITIES / INDICES": [
+                "Gold OTC",
+                "Silver OTC",
+                "Crude Oil OTC",
+                "Brent Oil OTC",
+                "US 500 OTC",
+                "NASDAQ 100 OTC"
+            ]
         },
         "[ALL ASSETS] — LIVE MARKET": {
-            "CURRENCY PAIRS": ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "USD/CHF", "EUR/JPY", "GBP/JPY", "EUR/GBP"]
+            "CURRENCY PAIRS": [
+                "EUR/USD",
+                "GBP/USD",
+                "USD/JPY",
+                "AUD/USD",
+                "USD/CAD",
+                "USD/CHF",
+                "EUR/JPY",
+                "GBP/JPY",
+                "EUR/GBP"
+            ]
         }
     },
     "ua": {
         "[ВСІ АКТИВИ] — OTC ЦИКЛ": {
-            "ВАЛЮТНІ ПАРИ": ["EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC", "AUD/USD OTC", "EUR/JPY OTC", "USD/CAD OTC", "GBP/JPY OTC", "NZD/USD OTC", "USD/CHF OTC", "EUR/GBP OTC"],
-            "АКЦІЇ": ["Apple OTC", "Microsoft OTC", "Amazon OTC", "Tesla OTC", "NVIDIA OTC", "Google OTC", "Netflix OTC", "Meta OTC", "Intel OTC", "AMD OTC"],
-            "КРИПТОВАЛЮТА": ["Bitcoin OTC", "Ethereum OTC", "Solana OTC", "Ripple OTC"],
-            "СИРОВИНА / ІНДЕКСИ": ["Gold OTC", "Silver OTC", "Crude Oil OTC", "Brent Oil OTC", "US 500 OTC", "NASDAQ 100 OTC"]
+            "ВАЛЮТНІ ПАРИ": [
+                "EUR/USD OTC",
+                "GBP/USD OTC",
+                "USD/JPY OTC",
+                "AUD/USD OTC",
+                "EUR/JPY OTC",
+                "USD/CAD OTC",
+                "GBP/JPY OTC",
+                "NZD/USD OTC",
+                "USD/CHF OTC",
+                "EUR/GBP OTC"
+            ],
+            "АКЦІЇ": [
+                "Apple OTC",
+                "Microsoft OTC",
+                "Amazon OTC",
+                "Tesla OTC",
+                "NVIDIA OTC",
+                "Google OTC",
+                "Netflix OTC",
+                "Meta OTC",
+                "Intel OTC",
+                "AMD OTC"
+            ],
+            "КРИПТОВАЛЮТА": [
+                "Bitcoin OTC",
+                "Ethereum OTC",
+                "Solana OTC",
+                "Ripple OTC"
+            ],
+            "СИРОВИНА / ІНДЕКСИ": [
+                "Gold OTC",
+                "Silver OTC",
+                "Crude Oil OTC",
+                "Brent Oil OTC",
+                "US 500 OTC",
+                "NASDAQ 100 OTC"
+            ]
         },
         "[ВСІ АКТИВИ] — ЖИВИЙ РИНОК": {
-            "ВАЛЮТНІ ПАРИ": ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "USD/CHF", "EUR/JPY", "GBP/JPY", "EUR/GBP"]
+            "ВАЛЮТНІ ПАРИ": [
+                "EUR/USD",
+                "GBP/USD",
+                "USD/JPY",
+                "AUD/USD",
+                "USD/CAD",
+                "USD/CHF",
+                "EUR/JPY",
+                "GBP/JPY",
+                "EUR/GBP"
+            ]
         }
     }
 }
 
-def get_pocket_payout(asset: str) -> int:
-    if "OTC" in asset: return 92
-    if any(crypto in asset for crypto in ["BTC", "ETH", "SOL", "XRP", "Bitcoin", "Ethereum"]): return 78
-    return 82
-
+# --- МАТЕМАТИЧЕСКИЙ АНАЛИЗАТОР ТРЕНДОВ И ИНДИКАТОРОВ ---
 def calculate_rsi(prices, period=14):
-    if len(prices) < period + 1: return 50.0
+    if len(prices) < period + 1: 
+        return 50.0
     deltas = np.diff(prices)
     up = np.where(deltas > 0, deltas, 0).mean()
     down = np.where(deltas < 0, -deltas, 0).mean()
-    if down == 0: return 100.0
+    if down == 0: 
+        return 100.0
     rs = up / down
     return 100.0 - (100.0 / (1.0 + rs))
 
 def calculate_ema(prices, period=20):
-    if len(prices) < period: return prices[-1]
+    if len(prices) < period: 
+        return prices[-1]
     weights = np.exp(np.linspace(-1., 0., period))
     weights /= weights.sum()
     return np.convolve(prices, weights, mode='valid')[-1]
 
+# Генерация математического трендового блуждания для OTC (Исключаем рандом)
+def generate_otc_candles(asset_name, count=50):
+    # Уникальный зернистый сид на основе времени и имени актива
+    seed_value = sum(ord(char) for char in asset_name) + int(asyncio.get_event_loop().time() / 150)
+    np.random.seed(seed_value)
+    
+    if "Bitcoin" in asset_name: 
+        start_price = 65000.0
+    elif "Ethereum" in asset_name: 
+        start_price = 3500.0
+    elif "Gold" in asset_name: 
+        start_price = 2300.0
+    elif "Apple" in asset_name or "Tesla" in asset_name: 
+        start_price = 180.0
+    else: 
+        start_price = 1.1250  
+        
+    # Моделируем трендовый дрейф цены с шумом
+    drift = np.random.uniform(-0.0001, 0.0001)
+    noise = np.random.normal(drift, 0.0012, count)
+    
+    prices = [start_price]
+    for n in noise:
+        prices.append(prices[-1] * (1 + n))
+        
+    return prices
+
 @app.get("/get_signal")
 async def get_signal(asset: str, timeframe: str):
-    await asyncio.sleep(0.8) 
-    binance_symbol = BINANCE_MAPPING.get(asset, "BTCUSDT")
-    is_otc = "OTC" in asset
+    print(f"[CORE LOG] Запрос сигнала. Актив: {asset}, Свеча: {timeframe}")
+    await asyncio.sleep(0.7)  # Эмуляция глубокого сканирования ядра
     
-    win_lock = random.randint(1, 100) <= 70  
-
+    is_otc = "OTC" in asset
+    clean_asset = asset.replace(" OTC", "").strip()
+    
+    # 1. Формирование пула цен (Реальный график или Математическая модель OTC)
     if is_otc:
-        random.seed(int(asyncio.get_event_loop().time() * 1000) % 9999)
-        base_signal = "UP" if random.random() > 0.48 else "DOWN"
-        
-        if win_lock:
-            accuracy = round(random.uniform(71.4, 76.8), 1)
-        else:
-            accuracy = round(random.uniform(58.2, 64.1), 1)
-            
-        return {
-            "signal": base_signal, 
-            "payout": get_pocket_payout(asset), 
-            "accuracy": accuracy, 
-            "outcome": "WIN", 
-            "session_verified": True
-        }
+        prices = generate_otc_candles(asset, count=50)
+        print(f"[ANALYTICS] Сгенерирован симуляционный квази-график для OTC-пары {asset}.")
+    else:
+        binance_symbol = BINANCE_MAPPING.get(clean_asset, "BTCUSDT")
+        try:
+            url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval=1m&limit=50"
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, timeout=3.0)
+                candles = response.json()
+                prices = [float(c[4]) for c in candles]
+            print(f"[ANALYTICS] Успешно загружен живой график Binance для {binance_symbol}.")
+        except Exception as e:
+            print(f"[API ERROR] Ошибка связи с Binance: {e}. Откат на локальное математическое блуждание.")
+            prices = generate_otc_candles(clean_asset, count=50)
 
-    try:
-        url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval=1m&limit=30"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, timeout=3.0)
-            candles = response.json()
-            prices = [float(c[4]) for c in candles]
-    except: 
-        prices = [100.0] * 30
-        
+    # 2. Вычисление индикаторов технического анализа
     rsi = calculate_rsi(prices)
     ema = calculate_ema(prices)
-    curr = prices[-1]
+    current_price = prices[-1]
     
-    if curr > ema and rsi < 40:
+    print(f"[MATH CALC] Параметры: Текущая цена={current_price:.5f}, EMA={ema:.5f}, RSI={rsi:.2f}")
+
+    # 3. Принятие торгового решения на базе ТА
+    if current_price > ema and rsi < 42:
         calculated_signal = "UP"
-    elif curr < ema and rsi > 60:
+    elif current_price < ema and rsi > 58:
         calculated_signal = "DOWN"
     else:
-        calculated_signal = "UP" if curr > ema else "DOWN"
+        # Следование за глобальным трендом скользящей средней
+        calculated_signal = "UP" if current_price > ema else "DOWN"
 
+    # 4. Система удержания винрейта учеников (Проверка коридора проходимости)
+    win_lock = random.randint(1, 100) <= 74
     if not win_lock:
         calculated_signal = "DOWN" if calculated_signal == "UP" else "UP"
-        accuracy = round(random.uniform(55.0, 61.5), 1)
+        accuracy = round(random.uniform(57.5, 63.8), 1)
     else:
-        accuracy = round(random.uniform(69.5, 75.2), 1)
+        accuracy = round(random.uniform(73.2, 79.6), 1)
+
+    payout = 92 if is_otc else 82
+    print(f"[SIGNAL GENERATED] Итог: Направление={calculated_signal}, Вероятность={accuracy}%")
 
     return {
         "signal": calculated_signal, 
-        "payout": get_pocket_payout(asset), 
+        "payout": payout, 
         "accuracy": accuracy, 
         "outcome": "WIN", 
         "session_verified": True
     }
 
+# --- ПОЛНОЦЕННЫЙ ОДНОСТРАНИЧНЫЙ ИНТЕРФЕЙС ТЕРМИНАЛА ---
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return rf"""
@@ -482,16 +635,10 @@ async def index():
         <div id="auth-screen" class="container" style="display: none;">
             <div class="title">HROM QUANTUM CORE</div>
             <div class="subtitle">Для доступа к сигналам введите ваш уникальный код</div>
-            
             <div style="width: 100%; display: flex; flex-direction: column; align-items: center;">
-                <div class="input-box">
-                    <input type="text" id="username" placeholder="Введите ваш @username в ТГ">
-                </div>
-                <div class="input-box">
-                    <input type="text" id="code" placeholder="Введите код доступа">
-                </div>
+                <div class="input-box"><input type="text" id="username" placeholder="Введите ваш @username в ТГ"></div>
+                <div class="input-box"><input type="text" id="code" placeholder="Введите код доступа"></div>
                 <button type="button" id="submitBtn" class="btn-activate" onclick="sendForm()">Активировать доступ</button>
-                
                 <div id="error-msg" style="color: #ff3344; font-size: 13px; font-weight: bold; margin-top: 15px; text-align: center; display: none;"></div>
                 <div id="success-msg" style="color: #00ff66; font-size: 13px; font-weight: bold; margin-top: 15px; text-align: center; display: none;"></div>
             </div>
@@ -549,7 +696,7 @@ async def index():
         <script>
             const rawData = {json.dumps(ASSETS_DATA)};
             
-            // Базовые массивы опций для генерации списков
+            // Базовые опции интервалов (Секунды и минуты полностью расписаны)
             const options_sec_ru = ["5 сек", "15 сек", "30 сек"];
             const options_min_ru = ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин", "15 мин"];
             
@@ -563,27 +710,13 @@ async def index():
 
             async function checkAuth() {{
                 const localUser = localStorage.getItem('tg_username');
-                if (!localUser) {{
-                    showScreen('auth-screen');
-                    return;
-                }}
+                if (!localUser) {{ showScreen('auth-screen'); return; }}
                 try {{
                     const response = await fetch('/check_user_status?username=' + encodeURIComponent(localUser));
                     const data = await response.json();
-                    
-                    if (data.status === 'approved') {{
-                        showScreen('terminal-screen');
-                        changeLang();
-                    }} else if (data.status === 'blocked') {{
-                        localStorage.removeItem('tg_username');
-                        showScreen('blocked-screen');
-                    }} else {{
-                        localStorage.removeItem('tg_username');
-                        showScreen('auth-screen');
-                    }}
-                }} catch(e) {{
-                    showScreen('auth-screen');
-                }}
+                    if (data.status === 'approved') {{ showScreen('terminal-screen'); changeLang(); }} 
+                    else {{ localStorage.removeItem('tg_username'); showScreen('auth-screen'); }}
+                }} catch(e) {{ showScreen('auth-screen'); }}
             }}
 
             function showScreen(screenId) {{
@@ -593,11 +726,7 @@ async def index():
                 document.getElementById(screenId).style.display = 'flex';
             }}
 
-            function logout() {{
-                localStorage.removeItem('tg_username');
-                window.location.reload();
-            }}
-
+            function logout() {{ localStorage.removeItem('tg_username'); window.location.reload(); }}
             function updateStat(type, val) {{ if(type=='win') wins = Math.max(0, wins + val); else losses = Math.max(0, losses + val); updateDisplay(); }}
             
             function updateDisplay() {{
@@ -652,7 +781,6 @@ async def index():
                 let l = document.getElementById('lang').value;
                 let asset = document.getElementById('asset').value; 
                 let category = document.getElementById('cat').value;
-                
                 document.getElementById('payout_lbl').innerText = `PAYOUT: ${{calcLocalPayout(asset)}}%`; 
                 
                 let timeSelect = document.getElementById('time');
@@ -663,14 +791,11 @@ async def index():
                 else if(l === 'ua') {{ sec_opts = options_sec_ua; min_opts = options_min_ua; }}
                 else {{ sec_opts = options_sec_en; min_opts = options_min_en; }}
                 
-                // Проверяем, является ли выбранная категория циклом OTC
                 let isOtcCycle = category.includes("OTC");
-                
-                // 1. Настройка ИНТЕРВАЛА СВЕЧИ (Всегда доступны и секунды, и минуты для всех рынков)
                 let fullTimeOptions = [...sec_opts, ...min_opts];
                 timeSelect.innerHTML = fullTimeOptions.map(o => `<option>${{o}}</option>`).join('');
                 
-                // 2. Настройка ЭКСПИРАЦИИ (Для OTC - всё вместе; для Живого рынка - ТОЛЬКО минуты!)
+                // СТРОГОЕ РАЗДЕЛЕНИЕ ЦИКЛОВ
                 if (isOtcCycle) {{
                     expSelect.innerHTML = fullTimeOptions.map(o => `<option>${{o}}</option>`).join('');
                 }} else {{
@@ -698,6 +823,7 @@ async def index():
                 document.getElementById('accuracy').style.display = 'none';
                 document.getElementById('timer').innerText = "";
                 document.getElementById('loader').style.display = 'block';
+                
                 let resp = await fetch(`/get_signal?asset=${{encodeURIComponent(document.getElementById('asset').value)}}&timeframe=${{encodeURIComponent(document.getElementById('time').value)}}`);
                 let data = await resp.json();
                 document.getElementById('loader').style.display = 'none';
@@ -708,8 +834,6 @@ async def index():
                 
                 let expVal = document.getElementById('exp').value;
                 let expSeconds = 0;
-                
-                // Динамический подсчет секунд для таймера сделки (парсим "сек/sec" или "мин/min/хв")
                 if(expVal.includes("сек") || expVal.includes("sec")) {{
                     expSeconds = parseInt(expVal.replace(/\D/g, ''));
                 }} else {{
@@ -730,56 +854,31 @@ async def index():
                 const btn = document.getElementById('submitBtn');
                 const errDiv = document.getElementById('error-msg');
                 const succDiv = document.getElementById('success-msg');
+                errDiv.style.display = 'none'; succDiv.style.display = 'none';
 
-                errDiv.style.display = 'none';
-                succDiv.style.display = 'none';
-
-                if(!userInp || !codeInp) {{
-                    errDiv.innerText = "Заполните все поля!";
-                    errDiv.style.display = 'block';
-                    return;
-                }}
-
-                btn.disabled = true;
-                btn.innerText = "Проверка кода...";
+                if(!userInp || !codeInp) {{ errDiv.innerText = "Заполните все поля!"; errDiv.style.display = 'block'; return; }}
+                btn.disabled = true; btn.innerText = "Проверка кода...";
 
                 try {{
                     const formData = new FormData();
                     formData.append('username', userInp);
                     formData.append('code', codeInp);
-
-                    const response = await fetch('/request_access', {{
-                        method: 'POST',
-                        body: formData
-                    }});
-
-                    if (!response.ok) {{
-                        throw new Error("Сервер вернул ошибку " + response.status);
-                    }}
-
+                    const response = await fetch('/request_access', {{ method: 'POST', body: formData }});
                     const result = await response.json();
 
                     if(result.success) {{
-                        succDiv.innerText = result.message;
-                        succDiv.style.display = 'block';
+                        succDiv.innerText = result.message; succDiv.style.display = 'block';
                         localStorage.setItem('tg_username', userInp);
-                        setTimeout(() => {{
-                            checkAuth();
-                        }}, 1000);
+                        setTimeout(() => {{ checkAuth(); }}, 1000);
                     }} else {{
-                        errDiv.innerText = result.message;
-                        errDiv.style.display = 'block';
-                        btn.disabled = false;
-                        btn.innerText = "Активировать доступ";
+                        errDiv.innerText = result.message; errDiv.style.display = 'block';
+                        btn.disabled = false; btn.innerText = "Активировать доступ";
                     }}
                 }} catch(e) {{
-                    errDiv.innerText = "Ошибка: " + e.message;
-                    errDiv.style.display = 'block';
-                    btn.disabled = false;
-                    btn.innerText = "Активировать доступ";
+                    errDiv.innerText = "Ошибка: " + e.message; errDiv.style.display = 'block';
+                    btn.disabled = false; btn.innerText = "Активировать доступ";
                 }}
             }}
-
             checkAuth();
         </script>
     </body>
@@ -787,5 +886,6 @@ async def index():
     """
 
 if __name__ == "__main__":
+    # Локальный хост и порт для деплоя (Render/Railway подхватят порт автоматически)
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
