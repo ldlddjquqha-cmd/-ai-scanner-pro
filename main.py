@@ -14,7 +14,7 @@ app = FastAPI()
 
 # --- КОНФИГУРАЦИЯ СИСТЕМЫ И ТЕЛЕГРАМ БОТА ---
 DB_FILE = "requests.json"
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU")
+BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"
 ADMIN_CHAT_ID = "6765689893"
 
 # Настройка ключа ИИ через новый SDK
@@ -134,7 +134,7 @@ async def telegram_webhook(request: Request):
                             ]
                         ]
                     }
-                    await edit_tg_message_status(chat_id, message_id, username, "✅ Разблокирован (Доступ open)", reply_markup=standard_markup)
+                    await edit_tg_message_status(chat_id, message_id, username, "✅ Разблокирован (Доступ открыт)", reply_markup=standard_markup)
                     print(f"[ADMIN ACTION] Ученик @{username} разблокирован через инлайн-кнопку.")
             return {"status": "ok"}
 
@@ -458,8 +458,7 @@ async def analyze_market_with_ai(asset: str, timeframe: str, current_price: floa
             return "DOWN", 76, "Резервный алгоритм ТА: Сигнал на понижение от зоны сопротивления."
         return "NONE", 0, "Резервный алгоритм ТА: Недостаточно волатильности для безопасной сделки."
 
-
-    @app.post("/scan_screenshot")
+@app.post("/scan_screenshot")
 async def scan_screenshot(username: str = Form(""), file: UploadFile = File(...)):
     username = username.strip().replace("@", "")
     print(f"[AI SCANNER] Ученик @{username} отправил изображение для ИИ-сканирования.")
@@ -467,8 +466,7 @@ async def scan_screenshot(username: str = Form(""), file: UploadFile = File(...)
     
     try:
         contents = await file.read()
-        # ИСПРАВЛЕНИЕ: используем types.Part.from_bytes
-        image_part = types.Part.from_bytes(data=contents, mime_type=file.content_type)
+        image_parts = [{"mime_type": file.content_type, "data": contents}]
         
         prompt = (
             "Перед тобой снимок торгового графика с платформы Pocket Option/Quotex. Проведи глубокий технический анализ:\n"
@@ -482,11 +480,11 @@ async def scan_screenshot(username: str = Form(""), file: UploadFile = File(...)
         
         response = await asyncio.to_thread(
             ai_client.models.generate_content,
-            model='gemini-2.0-flash',
-            contents=[prompt, image_part],
+            model='gemini-2.5-flash',
+            contents=[prompt, image_parts[0]],
             config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.1)
         )
-
+        
         ai_text = response.text
         signal = "NONE"
         if "ВВЕРХ" in ai_text.upper(): signal = "UP"
@@ -545,8 +543,7 @@ async def get_signal(asset: str, timeframe: str, username: str = ""):
 # --- ПОЛНОЦЕННЫЙ ИНТЕРФЕЙС ТЕРМИНАЛА ---
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    html_data = json.dumps(ASSETS_DATA)
-    return HTMLResponse(content=rf"""
+    return rf"""
     <html style="background:#06080c; color:#ffffff; font-family:'Segoe UI', Roboto, sans-serif; margin:0; padding:0;">
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -654,7 +651,7 @@ async def index():
         </div>
 
         <script>
-            const rawData = {html_data};
+            const rawData = {json.dumps(ASSETS_DATA)};
             
             const options_min_ru = ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "10 мин", "15 мин"];
             const options_min_en = ["1 min", "2 min", "3 min", "4 min", "5 min", "10 min", "15 min"];
@@ -698,7 +695,7 @@ async def index():
             const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦" }};
             const dictionary = {{ 
                 ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", auto: "ИИ АНАЛИЗ ТЕКУЩЕЙ ПАРЫ", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "АНАЛИЗ ЗАВЕРШЕН!", close: "ТАЙМЕР ЭКСПИРАЦИИ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
-                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "MARKET SCAN", auto: "AI ANALYZE THIS PAIR", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "ANALYSIS DONE!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
+                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET", auto: "AI ANALYZE THIS PAIR", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "ANALYSIS DONE!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
                 ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", auto: "ШІ АНАЛІЗ ПОТОЧНОЇ ПАРИ", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "АНАЛІЗ ЗАВЕРШЕНО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
             }};
             
@@ -885,7 +882,7 @@ async def index():
         </script>
     </body>
     </html>
-    """)
+    """
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
