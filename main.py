@@ -121,25 +121,95 @@ async def generate_key(master: str = None):
     </div>
     """)
 
-# --- АДМИН-ПАНЕЛЬ СУПЕР-АДМИНА ---
+# --- АДМИН-ПАНЕЛЬ С КНОПКАМИ УПРАВЛЕНИЯ ---
 @app.get("/admin_panel")
 async def admin_panel(secret: str = None):
-    if secret != "SUPER_ADMIN_123": return "Доступ запрещен"
+    if secret != "SUPER_ADMIN_123": 
+        return HTMLResponse("<h1 style='color:red; text-align:center;'>Доступ запрещен</h1>")
+    
     db = get_db()
-    html = "<h1>Управление учениками</h1>"
-    for user, info in db["users"].items():
-        status = info.get("status")
-        html += f"<p><b>{user}</b> — Статус: {status} | <a href='/set_status?user={user}&status=approved&secret=SUPER_ADMIN_123'>ОДОБРИТЬ</a> | <a href='/set_status?user={user}&status=blocked&secret=SUPER_ADMIN_123'>ЗАБЛОКИРОВАТЬ</a></p>"
-    return HTMLResponse(html)
+    
+    html_content = """
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Управление учениками — HROM</title>
+        <style>
+            body { background: #06080c; color: #ffffff; font-family: 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; }
+            .container { max-width: 600px; margin: 0 auto; background: #080a10; padding: 25px; border-radius: 20px; border: 1px solid #1a2233; box-shadow: 0 15px 30px rgba(0,0,0,0.5); }
+            h1 { font-size: 24px; color: #a855f7; text-align: center; margin-bottom: 25px; text-transform: uppercase; letter-spacing: 1px; }
+            .user-row { background: #0f131e; border: 1px solid #161b26; padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+            .user-info { font-size: 15px; font-weight: 600; }
+            .user-name { color: #00ff66; font-size: 16px; }
+            .status-badge { padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; text-transform: uppercase; margin-left: 5px; }
+            .status-approved { background: rgba(0, 255, 102, 0.15); color: #00ff66; border: 1px solid #00ff66; }
+            .status-blocked { background: rgba(255, 51, 68, 0.15); color: #ff3344; border: 1px solid #ff3344; }
+            .status-unknown { background: rgba(88, 105, 136, 0.15); color: #586988; border: 1px solid #586988; }
+            .btn-group { display: flex; gap: 8px; }
+            .btn-action { text-decoration: none; padding: 8px 14px; font-size: 12px; font-weight: bold; border-radius: 8px; text-transform: uppercase; transition: all 0.2s; display: inline-block; cursor: pointer; text-align: center; }
+            .btn-ban { background: #ff3344; color: #ffffff; border: none; box-shadow: 0 3px 10px rgba(255,51,68,0.2); }
+            .btn-unban { background: #00ff66; color: #000000; border: none; box-shadow: 0 3px 10px rgba(0,255,102,0.2); font-weight: 800; }
+            .btn-action:active { transform: scale(0.95); }
+            .no-users { text-align: center; color: #4b5975; padding: 20px; font-style: italic; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Управление учениками</h1>
+    """
+    
+    if not db["users"]:
+        html_content += '<div class="no-users">Список зарегистрированных учеников пока пуст.</div>'
+    else:
+        for user, info in db["users"].items():
+            status = info.get("status", "unknown")
+            
+            if status == "approved":
+                badge_class = "status-approved"
+                badge_text = "Активен"
+            elif status == "blocked":
+                badge_class = "status-blocked"
+                badge_text = "Бан"
+            else:
+                badge_class = "status-unknown"
+                badge_text = status
+
+            html_content += f"""
+            <div class="user-row">
+                <div class="user-info">
+                    <span class="user-name">@{user}</span>
+                    <span class="status-badge {badge_class}">{badge_text}</span>
+                </div>
+                <div class="btn-group">
+                    <a href="/set_status?user={user}&status=approved&secret=SUPER_ADMIN_123" class="btn-action btn-unban">Разбанить ✅</a>
+                    <a href="/set_status?user={user}&status=blocked&secret=SUPER_ADMIN_123" class="btn-action btn-ban">Забанить 🚫</a>
+                </div>
+            </div>
+            """
+            
+    html_content += """
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html_content)
 
 @app.get("/set_status")
 async def set_status(user: str, status: str, secret: str = None):
-    if secret != "SUPER_ADMIN_123": return "Доступ запрещен"
+    if secret != "SUPER_ADMIN_123": 
+        return "Доступ запрещен"
     db = get_db()
     if user in db["users"]:
         db["users"][user]["status"] = status
         save_db(db)
-    return HTMLResponse(f"Статус {user} изменен на {status}! <a href='/admin_panel?secret=SUPER_ADMIN_123'>Назад</a>")
+    return HTMLResponse(f"""
+    <div style="background:#06080c; color:#ffffff; font-family:sans-serif; text-align:center; padding-top:100px; height:100vh; box-sizing:border-box;">
+        <h2>Статус пользователя <b>@{user}</b> успешно изменен на <b>{status}</b>!</h2>
+        <br><br>
+        <a href="/admin_panel?secret=SUPER_ADMIN_123" style="background:#963bfe; color:white; font-weight:bold; padding:12px 24px; border:none; border-radius:10px; text-decoration:none; text-transform:uppercase; font-size:13px;">Вернуться в панель</a>
+    </div>
+    """)
 
 # --- СТРОГАЯ ПРОВЕРКА СТАТУСА ---
 @app.get("/check_user_status")
@@ -430,7 +500,7 @@ async def index():
                         showScreen('terminal-screen');
                         changeLang();
                     }} else if (data.status === 'blocked') {{
-                        localStorage.removeItem('tg_username'); // На всякий случай чистим локальное хранилище
+                        localStorage.removeItem('tg_username');
                         showScreen('blocked-screen');
                     }} else {{
                         localStorage.removeItem('tg_username');
