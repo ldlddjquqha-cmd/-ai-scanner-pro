@@ -34,7 +34,6 @@ def save_db(data):
 async def send_tg_notification(username, code):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     
-    # Формируем клавиатуру точно как на скриншоте
     reply_markup = {
         "inline_keyboard": [
             [
@@ -91,7 +90,6 @@ async def telegram_webhook(request: Request):
         data = await request.json()
         print(f"📡 Получен вебхук: {data}")
         
-        # 1. ОБРАБОТКА НАЖАТИЙ НА КНОПКИ (Callback Query)
         if "callback_query" in data:
             callback_query = data["callback_query"]
             chat_id = str(callback_query["message"]["chat"]["id"])
@@ -107,26 +105,18 @@ async def telegram_webhook(request: Request):
                     db["users"][username]["status"] = "blocked"
                     save_db(db)
                     
-                    # Создаем кнопку разблокировки, которая заменит старые кнопки
                     unban_markup = {
                         "inline_keyboard": [
                             [{"text": "✅ Разблокировать", "callback_data": f"unban:{username}"}]
                         ]
                     }
-                    await edit_tg_message_status(
-                        chat_id, 
-                        message_id, 
-                        username, 
-                        "🚫 Заблокирован (Доступ закрыт)", 
-                        reply_markup=unban_markup
-                    )
+                    await edit_tg_message_status(chat_id, message_id, username, "🚫 Заблокирован (Доступ закрыт)", reply_markup=unban_markup)
                     
                 elif action == "unban":
                     if username not in db["users"]: db["users"][username] = {}
                     db["users"][username]["status"] = "approved"
                     save_db(db)
                     
-                    # При разблокировке возвращаем стандартную панель управления (обе кнопки)
                     standard_markup = {
                         "inline_keyboard": [
                             [
@@ -135,16 +125,9 @@ async def telegram_webhook(request: Request):
                             ]
                         ]
                     }
-                    await edit_tg_message_status(
-                        chat_id, 
-                        message_id, 
-                        username, 
-                        "✅ Разблокирован (Доступ открыт)", 
-                        reply_markup=standard_markup
-                    )
+                    await edit_tg_message_status(chat_id, message_id, username, "✅ Разблокирован (Доступ открыт)", reply_markup=standard_markup)
             return {"status": "ok"}
 
-        # 2. ТЕКСТОВЫЕ КОМАНДЫ (из чата)
         if "message" in data and "text" in data["message"]:
             text = data["message"]["text"].strip()
             chat_id = str(data["message"]["chat"]["id"])
@@ -398,14 +381,12 @@ def calculate_ema(prices, period=20):
     weights /= weights.sum()
     return np.convolve(prices, weights, mode='valid')[-1]
 
-# --- ОБНОВЛЕННЫЙ МАТЕМАТИЧЕСКИЙ АЛГОРИТМ С ВИНРЕЙТОМ ~70% ---
 @app.get("/get_signal")
 async def get_signal(asset: str, timeframe: str):
     await asyncio.sleep(0.8) 
     binance_symbol = BINANCE_MAPPING.get(asset, "BTCUSDT")
     is_otc = "OTC" in asset
     
-    # 1. Алгоритм удержания баланса (Smart WinRate Filter)
     win_lock = random.randint(1, 100) <= 70  
 
     if is_otc:
@@ -567,12 +548,17 @@ async def index():
 
         <script>
             const rawData = {json.dumps(ASSETS_DATA)};
-            const tf_options = {{
-                ru: ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин"],
-                en: ["1 min", "2 min", "3 min", "4 min", "5 min"],
-                ua: ["1 хв", "2 хв", "3 хв", "4 хв", "5 хв"]
-            }};
             
+            // Базовые массивы опций для генерации списков
+            const options_sec_ru = ["5 сек", "15 сек", "30 сек"];
+            const options_min_ru = ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин", "15 мин"];
+            
+            const options_sec_en = ["5 sec", "15 sec", "30 sec"];
+            const options_min_en = ["1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min", "15 min"];
+            
+            const options_sec_ua = ["5 сек", "15 сек", "30 сек"];
+            const options_min_ua = ["1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "6 хв", "7 хв", "8 хв", "9 хв", "10 хв", "15 хв"];
+
             let wins = 0, losses = 0, currentBet = 100, martStep = 0, currentInterval = null, currentExpInterval = null;
 
             async function checkAuth() {{
@@ -665,11 +651,31 @@ async def index():
             function updAsset() {{ 
                 let l = document.getElementById('lang').value;
                 let asset = document.getElementById('asset').value; 
+                let category = document.getElementById('cat').value;
+                
                 document.getElementById('payout_lbl').innerText = `PAYOUT: ${{calcLocalPayout(asset)}}%`; 
+                
+                let timeSelect = document.getElementById('time');
                 let expSelect = document.getElementById('exp');
-                let options = tf_options[l];
-                expSelect.innerHTML = options.map(o => `<option>${{o}}</option>`).join('');
-                document.getElementById('time').innerHTML = tf_options[l].map(o => `<option>${{o}}</option>`).join(''); 
+                
+                let sec_opts = [], min_opts = [];
+                if(l === 'ru') {{ sec_opts = options_sec_ru; min_opts = options_min_ru; }}
+                else if(l === 'ua') {{ sec_opts = options_sec_ua; min_opts = options_min_ua; }}
+                else {{ sec_opts = options_sec_en; min_opts = options_min_en; }}
+                
+                // Проверяем, является ли выбранная категория циклом OTC
+                let isOtcCycle = category.includes("OTC");
+                
+                // 1. Настройка ИНТЕРВАЛА СВЕЧИ (Всегда доступны и секунды, и минуты для всех рынков)
+                let fullTimeOptions = [...sec_opts, ...min_opts];
+                timeSelect.innerHTML = fullTimeOptions.map(o => `<option>${{o}}</option>`).join('');
+                
+                // 2. Настройка ЭКСПИРАЦИИ (Для OTC - всё вместе; для Живого рынка - ТОЛЬКО минуты!)
+                if (isOtcCycle) {{
+                    expSelect.innerHTML = fullTimeOptions.map(o => `<option>${{o}}</option>`).join('');
+                }} else {{
+                    expSelect.innerHTML = min_opts.map(o => `<option>${{o}}</option>`).join('');
+                }}
             }}
             
             async function startFlow(isAI, isMart = false) {{
@@ -699,8 +705,17 @@ async def index():
                 document.getElementById('res').style.color = data.signal == "UP" ? "#00ff66" : "#ff3344";
                 document.getElementById('accuracy').style.display = 'block';
                 document.getElementById('accuracy').innerText = "ACCURACY: " + data.accuracy + "%";
+                
                 let expVal = document.getElementById('exp').value;
-                let expSeconds = parseInt(expVal.replace(/\D/g, '')) * 60;
+                let expSeconds = 0;
+                
+                // Динамический подсчет секунд для таймера сделки (парсим "сек/sec" или "мин/min/хв")
+                if(expVal.includes("сек") || expVal.includes("sec")) {{
+                    expSeconds = parseInt(expVal.replace(/\D/g, ''));
+                }} else {{
+                    expSeconds = parseInt(expVal.replace(/\D/g, '')) * 60;
+                }}
+                
                 timerEl = document.getElementById('timer');
                 timerEl.innerText = d.open;
                 currentExpInterval = setInterval(() => {{
