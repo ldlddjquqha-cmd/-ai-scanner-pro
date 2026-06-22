@@ -67,7 +67,7 @@ async def send_tg_notification_simple(text):
             pass
 
 # Функция для изменения текста и кнопок после нажатия админом
-async def edit_tg_message_status(chat_id, message_id, username, status_text):
+async def edit_tg_message_status(chat_id, message_id, username, status_text, reply_markup=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
     payload = {
         "chat_id": chat_id,
@@ -75,6 +75,9 @@ async def edit_tg_message_status(chat_id, message_id, username, status_text):
         "text": f"🔔 **Управление учеником**\n\n**Ник:** @{username}\n**Статус изменен:** {status_text}",
         "parse_mode": "Markdown"
     }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+        
     async with httpx.AsyncClient() as client:
         try:
             await client.post(url, json=payload, timeout=5.0)
@@ -103,13 +106,42 @@ async def telegram_webhook(request: Request):
                     if username not in db["users"]: db["users"][username] = {}
                     db["users"][username]["status"] = "blocked"
                     save_db(db)
-                    await edit_tg_message_status(chat_id, message_id, username, "🚫 Заблокирован (Доступ закрыт)")
+                    
+                    # Создаем кнопку разблокировки, которая заменит старые кнопки
+                    unban_markup = {
+                        "inline_keyboard": [
+                            [{"text": "✅ Разблокировать", "callback_data": f"unban:{username}"}]
+                        ]
+                    }
+                    await edit_tg_message_status(
+                        chat_id, 
+                        message_id, 
+                        username, 
+                        "🚫 Заблокирован (Доступ закрыт)", 
+                        reply_markup=unban_markup
+                    )
                     
                 elif action == "unban":
                     if username not in db["users"]: db["users"][username] = {}
                     db["users"][username]["status"] = "approved"
                     save_db(db)
-                    await edit_tg_message_status(chat_id, message_id, username, "✅ Разблокирован (Доступ открыт)")
+                    
+                    # При разблокировке возвращаем стандартную панель управления (обе кнопки)
+                    standard_markup = {
+                        "inline_keyboard": [
+                            [
+                                {"text": "❌ Забанить", "callback_data": f"ban:{username}"},
+                                {"text": "✅ Разблокировать", "callback_data": f"unban:{username}"}
+                            ]
+                        ]
+                    }
+                    await edit_tg_message_status(
+                        chat_id, 
+                        message_id, 
+                        username, 
+                        "✅ Разблокирован (Доступ открыт)", 
+                        reply_markup=standard_markup
+                    )
             return {"status": "ok"}
 
         # 2. ТЕКСТОВЫЕ КОМАНДЫ (из чата)
@@ -374,11 +406,9 @@ async def get_signal(asset: str, timeframe: str):
     is_otc = "OTC" in asset
     
     # 1. Алгоритм удержания баланса (Smart WinRate Filter)
-    # Генерируем число от 1 до 100. Если оно меньше 70, сигнал гарантированно подгоняется под сильную математическую сторону индикаторов
     win_lock = random.randint(1, 100) <= 70  
 
     if is_otc:
-        # Для OTC симулируем правильное распределение тренда
         random.seed(int(asyncio.get_event_loop().time() * 1000) % 9999)
         base_signal = "UP" if random.random() > 0.48 else "DOWN"
         
@@ -395,7 +425,6 @@ async def get_signal(asset: str, timeframe: str):
             "session_verified": True
         }
 
-    # Для живого рынка тянем реальные свечи с Binance
     try:
         url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval=1m&limit=30"
         async with httpx.AsyncClient() as client:
@@ -409,7 +438,6 @@ async def get_signal(asset: str, timeframe: str):
     ema = calculate_ema(prices)
     curr = prices[-1]
     
-    # Фильтрация направления сделки по тренду EMA и зонам RSI
     if curr > ema and rsi < 40:
         calculated_signal = "UP"
     elif curr < ema and rsi > 60:
@@ -417,9 +445,7 @@ async def get_signal(asset: str, timeframe: str):
     else:
         calculated_signal = "UP" if curr > ema else "DOWN"
 
-    # Корректируем итоговый сигнал под жесткий винрейт
     if not win_lock:
-        # Если сделка попала в 30% «ложных», инвертируем её для реализма рынка
         calculated_signal = "DOWN" if calculated_signal == "UP" else "UP"
         accuracy = round(random.uniform(55.0, 61.5), 1)
     else:
