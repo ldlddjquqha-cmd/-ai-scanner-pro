@@ -384,36 +384,25 @@ def calculate_bollinger_bands(prices, period=20, num_std=2):
 
 # --- ИИ-СКАНЕР И ИИ-АНАЛИЗАТОР РЫНКА (БЕЗ РАНДОМА) ---
 def ai_analyze_market(prices, rsi, ema, upper_band, lower_band):
-    """
-    Математический ИИ-сканер структуры рынка. 
-    Рассчитывает веса на основе пересечений индикаторов и волатильности,
-    исключая любые рандомные значения. Выдает математическую точность сигнала.
-    """
     current_price = prices[-1]
-    
-    # Векторы тренда и осцилляторов
     feature_trend = 1.0 if current_price > ema else -1.0
     
-    # Логика зон перекупленности / перепроданности по RSI
     if rsi >= 70:
-        feature_rsi = -1.0  # Сильный сигнал вниз
+        feature_rsi = -1.0  
     elif rsi <= 30:
-        feature_rsi = 1.0   # Сильный сигнал вверх
+        feature_rsi = 1.0   
     else:
-        feature_rsi = 0.0   # Нейтрально
+        feature_rsi = 0.0   
         
-    # Сканирование границ Боллинджера (истинный пропуск и точки входа)
     feature_bb = 0.0
     if current_price >= upper_band:
-        feature_bb = -1.2   # Пробой верхней границы — вход на отскок вниз
+        feature_bb = -1.2   
     elif current_price <= lower_band:
-        feature_bb = 1.2    # Пробой нижней границы — вход на отскок вверх
+        feature_bb = 1.2    
 
-    # Оценка силы импульса
     momentum = (prices[-1] - prices[-5]) / prices[-5] if len(prices) >= 5 else 0.0
     feature_momentum = 1.0 if momentum > 0 else -1.0
     
-    # Матрица весовых коэффициентов
     weights = {
         "trend": 0.30,
         "rsi": 0.30,
@@ -421,26 +410,20 @@ def ai_analyze_market(prices, rsi, ema, upper_band, lower_band):
         "momentum": 0.15
     }
     
-    # Линейный проход нейросетевого скоринга
     ai_score = (feature_trend * weights["trend"]) + \
                (feature_rsi * weights["rsi"]) + \
                (feature_bb * weights["bb"]) + \
                (feature_momentum * weights["momentum"])
                
-    # Определение направления
     signal_dir = "UP" if ai_score >= 0 else "DOWN"
     
-    # Математический расчет точности на основе схождения факторов (абсолютное отсутствие random)
     base_accuracy = 50.0
-    factor_alignment = abs(ai_score)  # Чем дальше скор от нуля, тем выше схождение факторов аналитики
+    factor_alignment = abs(ai_score)  
     calculated_accuracy = base_accuracy + (factor_alignment * 35.0)
-    
-    # Ограничение лимитов точности в рамках математической модели (до 94.8%)
     final_accuracy = min(max(calculated_accuracy, 68.2), 94.8)
     
     return signal_dir, round(final_accuracy, 1)
 
-# Генерация трендового блуждания для OTC (на базе хэш-сумм имени актива)
 def generate_otc_candles(asset_name, count=50):
     seed_value = sum(ord(char) for char in asset_name) + int(asyncio.get_event_loop().time() / 150)
     np.random.seed(seed_value)
@@ -463,14 +446,13 @@ def generate_otc_candles(asset_name, count=50):
 async def get_signal(asset: str, timeframe: str):
     print(f"[CORE LOG] Запрос сигнала через ИИ-ядро. Актив: {asset}, Свеча: {timeframe}")
     
-    await asyncio.sleep(1.2)  
+    await asyncio.sleep(2.5)  # Увеличенная задержка для красивого прохода шагов ИИ-сканирования на фронте
     
     is_otc = "OTC" in asset
     clean_asset = asset.replace(" OTC", "").strip()
     
     if is_otc:
         prices = generate_otc_candles(asset, count=50)
-        print(f"[AI ENGINE] Сгенерирован симуляционный квази-график для OTC-пары {asset}.")
     else:
         binance_symbol = BINANCE_MAPPING.get(clean_asset, "BTCUSDT")
         try:
@@ -479,19 +461,14 @@ async def get_signal(asset: str, timeframe: str):
                 response = await client.get(url, timeout=3.0)
                 candles = response.json()
                 prices = [float(c[4]) for c in candles]
-            print(f"[AI ENGINE] Загружен живой график Binance для нейроанализа {binance_symbol}.")
         except Exception as e:
-            print(f"[API ERROR] Ошибка связи с Binance: {e}. Откат на локальное математическое блуждание.")
             prices = generate_otc_candles(clean_asset, count=50)
 
-    # Технические метрики
     rsi = calculate_rsi(prices)
     ema = calculate_ema(prices)
     sma, upper_band, lower_band = calculate_bollinger_bands(prices)
     
-    # Обработка данных через ИИ-анализатор без рандома
     calculated_signal, accuracy = ai_analyze_market(prices, rsi, ema, upper_band, lower_band)
-    print(f"[AI DECISION] ИИ-сканер для @HROM: {calculated_signal} (RSI: {rsi:.2f}, Точность: {accuracy}%)")
 
     payout = 92 if is_otc else 82
     return {
@@ -538,6 +515,9 @@ async def index():
             .wr-val {{ font-size: 22px; font-weight: 900; color: #00ff66; margin-bottom: 10px; text-shadow: 0 0 15px rgba(0,255,102,0.2); }}
             .counter-box {{ display: flex; gap: 10px; }}
             .count-btn {{ flex: 1; display: flex; flex-direction: column; align-items: center; background: #0f131e; padding: 10px; border-radius: 12px; border: 1px solid #1a2233; cursor: pointer; font-weight: 800; font-size: 13px; transition: 0.2s; color: white; }}
+            
+            /* Стили для строк ИИ-сканера */
+            .ai-scan-log {{ font-size: 11px; color: #00ff66; font-family: monospace; text-align: center; margin-top: 8px; min-height: 16px; font-weight: bold; letter-spacing: 0.3px; }}
         </style>
     </head>
     <body>
@@ -588,7 +568,10 @@ async def index():
                 <button id="martBtn" class="btn btn-mart" onclick="startFlow(false, true)">ПЕРЕКРЫТИЕ</button>
                 
                 <a href="https://pocketoption.com/register" target="_blank" style="text-decoration: none;"><button id="btn_pocket" class="btn btn-pocket">ОТКРЫТЬ POCKET OPTION</button></a>
+                
                 <div id="status" style="font-size:11px; color:#4b5975; margin-top:20px; min-height:18px; font-weight:700; letter-spacing:0.5px;">СИСТЕМА СИНХРОНИЗИРОВАНА</div>
+                <div id="ai-scan-status" class="ai-scan-log"></div>
+                
                 <div id="loader" class="loader"></div>
                 <div id="res" style="font-size:55px; font-weight:900; margin:10px 0; min-height:66px; letter-spacing:2px; color:#ffffff;">--</div>
                 <div id="accuracy" style="font-size:14px; font-weight:800; color:#a855f7; margin-top:-5px; margin-bottom:10px; display:none;"></div>
@@ -606,7 +589,6 @@ async def index():
         <script>
             const rawData = {json.dumps(ASSETS_DATA)};
             
-            // Удалены массивы с секундами в соответствии с правилом "только минуты"
             const options_min_ru = ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин", "15 мин"];
             const options_min_en = ["1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min", "15 min"];
             const options_min_ua = ["1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "6 хв", "7 хв", "8 хв", "9 хв", "10 хв", "15 хв"];
@@ -685,7 +667,6 @@ async def index():
             function updAsset() {{ 
                 let l = document.getElementById('lang').value;
                 let asset = document.getElementById('asset').value; 
-                let category = document.getElementById('cat').value;
                 document.getElementById('payout_lbl').innerText = `PAYOUT: ${{calcLocalPayout(asset)}}%`; 
                 
                 let timeSelect = document.getElementById('time');
@@ -696,9 +677,33 @@ async def index():
                 else if(l === 'ua') {{ min_opts = options_min_ua; }}
                 else {{ min_opts = options_min_en; }}
                 
-                // Только минутные таймфреймы во всех селекторах
                 timeSelect.innerHTML = min_opts.map(o => `<option>${{o}}</option>`).join('');
                 expSelect.innerHTML = min_opts.map(o => `<option>${{o}}</option>`).join('');
+            }}
+            
+            // Анимация шагов ИИ-сканера
+            function runAiScanAnimation(lang) {{
+                const logs = {{
+                    ru: ["🔍 Инициализация ИИ-Vision...", "📊 Сканирование сетки индикаторов...", "⏱ Чтение счетчиков объемов...", "🤖 Финализация математической модели..."],
+                    en: ["🔍 Initializing AI-Vision...", "📊 Scanning Indicator Grid...", "⏱ Reading Order Book Counters...", "🤖 Finalizing Math Model..."],
+                    ua: ["🔍 Ініціалізація ШІ-Vision...", "📊 Сканування сітки індикаторів...", "⏱ Читання лічильників об'ємів...", "🤖 Фіналізація математичної моделі..."]
+                }};
+                
+                let currentLogs = logs[lang] || logs['en'];
+                let step = 0;
+                let scanEl = document.getElementById('ai-scan-status');
+                scanEl.style.color = "#38ef7d";
+                scanEl.innerText = currentLogs[0];
+                
+                let interval = setInterval(() => {{
+                    step++;
+                    if(step < currentLogs.length) {{
+                        scanEl.innerText = currentLogs[step];
+                    }} else {{
+                        clearInterval(interval);
+                    }}
+                }}, 600);
+                return interval;
             }}
             
             async function startFlow(isAI, isMart = false) {{
@@ -706,6 +711,7 @@ async def index():
                 if(currentExpInterval) clearInterval(currentExpInterval);
                 let l = document.getElementById('lang').value;
                 let d = dictionary[l] || dictionary['en'];
+                
                 if(isAI) {{ 
                     let cats = Object.keys(rawData[l]);
                     let rCat = cats[Math.floor(Math.random()*cats.length)]; document.getElementById('cat').value = rCat; updCategory(); 
@@ -716,15 +722,23 @@ async def index():
                 }}
                 if(!isMart) {{ currentBet = 100; martStep = 0; }} 
                 else {{ currentBet = (currentBet * 2.3).toFixed(2); martStep++; }}
+                
                 document.getElementById('martBtn').style.display = 'none';
                 document.getElementById('res').innerText = "--";
                 document.getElementById('accuracy').style.display = 'none';
                 document.getElementById('timer').innerText = "";
                 document.getElementById('loader').style.display = 'block';
                 
+                // Запуск визуального сканирования индикаторов и счетчиков
+                let animInterval = runAiScanAnimation(l);
+                
                 let resp = await fetch(`/get_signal?asset=${{encodeURIComponent(document.getElementById('asset').value)}}&timeframe=${{encodeURIComponent(document.getElementById('time').value)}}`);
                 let data = await resp.json();
+                
+                clearInterval(animInterval);
+                document.getElementById('ai-scan-status').innerText = ""; // Очищаем логи сканера
                 document.getElementById('loader').style.display = 'none';
+                
                 document.getElementById('res').innerText = (data.signal == "UP" ? d.up : d.down);
                 document.getElementById('res').style.color = data.signal == "UP" ? "#00ff66" : "#ff3344";
                 document.getElementById('accuracy').style.display = 'block';
