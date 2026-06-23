@@ -21,7 +21,7 @@ logger = logging.getLogger("QuantumCore")
 app = FastAPI(title="HROM QUANTUM CORE GLOBAL", version="18.0")
 
 DB_FILE = "requests.json"
-BOT_TOKEN = "8761108877:AAGzMIeErZoGcVlLvd-yO-w7FZbIezCQ9SE"
+BOT_TOKEN = "8847524172:AAF3um77sDqsX6IWq_W-D-Hb8TQJSpK-0qo"
 ADMIN_CHAT_ID = "6765689893"
 
 # --- ИНФРАСТРУКТУРА БАЗЫ ДАННЫХ JSON ---
