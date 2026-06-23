@@ -1,9 +1,9 @@
+aiohttp==3.9.5
 aiogram==2.25.1
 opencv-python-headless
 numpy
 fastapi
 uvicorn
 httpx
-google-genai
 google-generativeai
 python-multipart
