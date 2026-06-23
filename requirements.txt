@@ -1,7 +1,9 @@
+aiogram==2.25.1
+opencv-python-headless
+numpy
 fastapi
 uvicorn
 httpx
-numpy
 google-genai
 google-generativeai
 python-multipart
