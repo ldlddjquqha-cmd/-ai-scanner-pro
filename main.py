@@ -5,31 +5,51 @@ import numpy as np
 import os
 import uvicorn
 import httpx
+import logging
+from datetime import datetime
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-app = FastAPI()
+# --- НАСТРОЙКА ЛОГИРОВАНИЯ И СЕРВЕРА ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("quantum_system.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("QuantumCore")
+
+app = FastAPI(title="HROM QUANTUM CORE GLOBAL", version="16.0")
 
 # --- КОНФИГУРАЦИЯ СИСТЕМЫ И ТЕЛЕГРАМ БОТА ---
 DB_FILE = "requests.json"
 BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"
 ADMIN_CHAT_ID = "6765689893"
 
+# --- ИНФРАСТРУКТУРА БАЗЫ ДАННЫХ JSON ---
 def get_db():
     if not os.path.exists(DB_FILE): 
-        return {"users": {}, "keys": []}
+        logger.info("Файл БД не найден, создаем чистую структуру.")
+        return {"users": {}, "keys": [], "history": []}
     with open(DB_FILE, "r", encoding="utf-8") as f:
         try: 
             data = json.load(f)
-            if "users" not in data: 
-                data = {"users": data, "keys": []}
+            if "users" not in data: data = {"users": data, "keys": [], "history": []}
+            if "keys" not in data: data["keys"] = []
+            if "history" not in data: data["history"] = []
             return data
-        except: 
-            return {"users": {}, "keys": []}
+        except Exception as e: 
+            logger.error(f"Ошибка чтения БД JSON: {e}. Сброс до дефолта.")
+            return {"users": {}, "keys": [], "history": []}
 
 def save_db(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Критическая ошибка записи в БД JSON: {e}")
 
 # --- СИСТЕМА УВЕДОМЛЕНИЙ В ТЕЛЕГРАМ ---
 async def send_tg_notification(username, code):
@@ -44,15 +64,16 @@ async def send_tg_notification(username, code):
     }
     payload = {
         "chat_id": ADMIN_CHAT_ID,
-        "text": f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** ✅ Доступ разрешен",
+        "text": f"🔔 **Новый ученик активировал код!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Текущий статус:** ✅ Доступ разрешен\n**Время:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         "parse_mode": "Markdown",
         "reply_markup": reply_markup
     }
     async with httpx.AsyncClient() as client:
         try: 
-            await client.post(url, json=payload, timeout=5.0)
+            res = await client.post(url, json=payload, timeout=5.0)
+            logger.info(f"Уведомление отправлено в ТГ для @{username}. Статус: {res.status_code}")
         except Exception as e: 
-            print(f"[TG ERROR] Ошибка отправки уведомления в ТГ: {e}")
+            logger.error(f"[TG ERROR] Ошибка отправки уведомления в ТГ: {e}")
 
 async def send_tg_notification_simple(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -61,14 +82,14 @@ async def send_tg_notification_simple(text):
         try: 
             await client.post(url, json=payload, timeout=5.0)
         except Exception as e:
-            print(f"[TG ERROR] Ошибка отправки простого сообщения: {e}")
+            logger.error(f"[TG ERROR] Ошибка отправки простого сообщения: {e}")
 
 async def edit_tg_message_status(chat_id, message_id, username, status_text, reply_markup=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
     payload = {
         "chat_id": chat_id,
         "message_id": message_id,
-        "text": f"🔔 **Управление учеником**\n\n**Ник:** @{username}\n**Статус изменен:** {status_text}",
+        "text": f"🔔 **Управление учеником**\n\n**Ник:** @{username}\n**Статус изменен:** {status_text}\n**Обновлено:** {datetime.now().strftime('%H:%M:%S')}",
         "parse_mode": "Markdown"
     }
     if reply_markup: 
@@ -77,13 +98,14 @@ async def edit_tg_message_status(chat_id, message_id, username, status_text, rep
         try: 
             await client.post(url, json=payload, timeout=5.0)
         except Exception as e:
-            print(f"[TG ERROR] Ошибка редактирования сообщения: {e}")
+            logger.error(f"[TG ERROR] Ошибка редактирования сообщения: {e}")
 
 # --- ТЕЛЕГРАМ ВЕБХУК (ОБРАБОТКА КНОПОК И КОМАНД) ---
 @app.post("/telegram_webhook")
 async def telegram_webhook(request: Request):
     try:
         data = await request.json()
+        logger.info(f"Получен входящий вебхук от Telegram API.")
         
         if "callback_query" in data:
             callback_query = data["callback_query"]
@@ -96,18 +118,18 @@ async def telegram_webhook(request: Request):
                 db = get_db()
                 
                 if action == "ban":
-                    if username not in db["users"]: 
-                        db["users"][username] = {}
+                    if username not in db["users"]: db["users"][username] = {}
                     db["users"][username]["status"] = "blocked"
                     save_db(db)
+                    logger.info(f"Администратор забанил юзера @{username} через инлайн кнопку.")
                     unban_markup = {"inline_keyboard": [[{"text": "✅ Разблокировать", "callback_data": f"unban:{username}"}]]}
                     await edit_tg_message_status(chat_id, message_id, username, "🚫 Заблокирован (Доступ закрыт)", reply_markup=unban_markup)
                     
                 elif action == "unban":
-                    if username not in db["users"]: 
-                        db["users"][username] = {}
+                    if username not in db["users"]: db["users"][username] = {}
                     db["users"][username]["status"] = "approved"
                     save_db(db)
+                    logger.info(f"Администратор разбанил юзера @{username} через инлайн кнопку.")
                     standard_markup = {
                         "inline_keyboard": [
                             [
@@ -131,20 +153,20 @@ async def telegram_webhook(request: Request):
                     db = get_db()
                     
                     if command == "/бан":
-                        if username not in db["users"]: 
-                            db["users"][username] = {}
+                        if username not in db["users"]: db["users"][username] = {}
                         db["users"][username]["status"] = "blocked"
                         save_db(db)
+                        logger.info(f"Команда /бан выполнена для @{username}")
                         await send_tg_notification_simple(f"🚫 Пользователь @{username} заблокирован.")
                     
                     elif command == "/разбанить":
-                        if username not in db["users"]: 
-                            db["users"][username] = {}
+                        if username not in db["users"]: db["users"][username] = {}
                         db["users"][username]["status"] = "approved"
                         save_db(db)
+                        logger.info(f"Команда /разбанить выполнена для @{username}")
                         await send_tg_notification_simple(f"✅ Пользователь @{username} разблокирован.")
     except Exception as e: 
-        print(f"[WEBHOOK ERROR] Исключение при обработке вебхука: {e}")
+        logger.error(f"[WEBHOOK ERROR] Исключение при обработке вебхука: {e}")
         
     return {"status": "ok"}
 
@@ -152,6 +174,7 @@ async def telegram_webhook(request: Request):
 @app.get("/generate_key")
 async def generate_key(master: str = None):
     if master != "SUPER_ADMIN_123": 
+        logger.warning("Попытка несанкционированного доступа к генератору ключей!")
         return HTMLResponse("<h1 style='color:red; text-align:center;'>Доступ закрыт. Неверный секретный ключ!</h1>")
     
     chars = "0123456789ABCDEF"
@@ -160,6 +183,7 @@ async def generate_key(master: str = None):
     db = get_db()
     db["keys"].append(new_key)
     save_db(db)
+    logger.info(f"Успешно сгенерирован новый лицензионный ключ: {new_key}")
     
     return HTMLResponse(f"""
     <div style="background:#06080c; color:#ffffff; font-family:sans-serif; text-align:center; padding:50px; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; box-sizing:border-box;">
@@ -178,9 +202,11 @@ async def generate_key(master: str = None):
 @app.get("/admin_panel")
 async def admin_panel(secret: str = None):
     if secret != "SUPER_ADMIN_123": 
+        logger.warning("Попытка входа в админ-панель с неверным секретом.")
         return HTMLResponse("<h1 style='color:red; text-align:center;'>Доступ запрещен</h1>")
     
     db = get_db()
+    logger.info("Администратор открыл веб-панель управления учениками.")
     
     html_content = """
     <html>
@@ -250,11 +276,13 @@ async def admin_panel(secret: str = None):
 @app.get("/set_status")
 async def set_status(user: str, status: str, secret: str = None):
     if secret != "SUPER_ADMIN_123": 
+        logger.warning(f"Попытка изменить статус {user} без валидного секретного ключа.")
         return "Доступ запрещен"
     db = get_db()
     if user in db["users"]:
         db["users"][user]["status"] = status
         save_db(db)
+        logger.info(f"Статус пользователя @{user} изменен администратором на {status}")
     return HTMLResponse(f"""
     <div style="background:#06080c; color:#ffffff; font-family:sans-serif; text-align:center; padding-top:100px; height:100vh; box-sizing:border-box;">
         <h2>Статус пользователя <b>@{user}</b> успешно изменен на <b>{status}</b>!</h2>
@@ -269,6 +297,7 @@ async def check_user_status(username: str = ""):
     username = username.strip().replace("@", "").replace(" ", "")
     db = get_db()
     status = db["users"].get(username, {}).get("status") if username else None
+    logger.debug(f"Запрос статуса для юзера @{username}: {status}")
     return JSONResponse({"status": status})
 
 @app.post("/request_access")
@@ -277,35 +306,34 @@ async def request_access(username: str = Form(...), code: str = Form(...)):
     code = code.strip().replace(" ", "")
     db = get_db()
     
+    logger.info(f"Попытка активации кода юзером @{username}. Код: {code}")
+    
     if username in db["users"] and db["users"][username]["status"] == "blocked":
+        logger.warning(f"Заблокированный пользователь @{username} пытался получить доступ.")
         return JSONResponse({"success": False, "message": "Вы заблокированы!"})
 
     if username in db["users"] and db["users"][username]["status"] == "approved":
+        logger.info(f"Пользователь @{username} зашел со статусом approved (повторный вход).")
         return JSONResponse({"success": True, "message": "Доступ уже подтвержден! Заходим..."})
 
     if code not in db["keys"]:
+        logger.warning(f"Неудачная попытка активации: код {code} не найден в базе свободных ключей.")
         return JSONResponse({"success": False, "message": "Неверный или уже использованный код!"})
     
     db["keys"].remove(code)
-    db["users"][username] = {"status": "approved", "used_code": code}
+    db["users"][username] = {"status": "approved", "used_code": code, "activated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
     save_db(db)
     
+    logger.info(f"Юзер @{username} успешно привязал сессию по коду {code}.")
     asyncio.create_task(send_tg_notification(username, code))
     
     return JSONResponse({"success": True, "message": "Код успешно активирован! Загрузка..."})
 
 # --- ПОЛНЫЙ МАССИВ АКТИВОВ БЕЗ СОКРАЩЕНИЙ И СЖАТИЙ ---
 BINANCE_MAPPING = {
-    "EUR/USD": "EURUSDT",
-    "GBP/USD": "GBPUSDT",
-    "USD/JPY": "USDJPY",
-    "AUD/USD": "AUDUSDT",
-    "EUR/JPY": "EURJPY",
-    "USD/CAD": "USDCAD",
-    "GBP/JPY": "GBPJPY",
-    "NZD/USD": "NZDUSDT",
-    "USD/CHF": "USDCHF",
-    "EUR/GBP": "EURGBP"
+    "EUR/USD": "EURUSDT", "GBP/USD": "GBPUSDT", "USD/JPY": "USDJPY",
+    "AUD/USD": "AUDUSDT", "EUR/JPY": "EURJPY", "USD/CAD": "USDCAD",
+    "GBP/JPY": "GBPJPY", "NZD/USD": "NZDUSDT", "USD/CHF": "USDCHF", "EUR/GBP": "EURGBP"
 }
 
 ASSETS_DATA = {
@@ -371,22 +399,29 @@ def ai_analyze_market(prices, rsi, ema):
     """
     current_price = prices[-1]
     
+    # 1. Фактор положения цены относительно Экспоненциальной Скользящей Средней (EMA)
     feature_trend = 1.0 if current_price > ema else -1.0
+    
+    # 2. Фактор осциллятора RSI (Определяем критическую перекупленность / перепроданность)
     feature_rsi_overbought = 1.0 if rsi > 70 else (-1.0 if rsi < 30 else 0.0)
     
+    # 3. Скорость изменения цены (Momentum за последние 5 временных интервалов)
     momentum = (prices[-1] - prices[-5]) / prices[-5] if len(prices) >= 5 else 0.0
     feature_momentum = 1.0 if momentum > 0 else -1.0
     
+    # Коэффициенты весов слоев нейросети для принятия финального торгового решения
     weights = {
         "trend": 0.45,       
         "rsi": 0.30,         
         "momentum": 0.25     
     }
     
+    # Прямой проход (сканирование) расчетного математического графа
     ai_score = (feature_trend * weights["trend"]) + \
                (-1.0 * feature_rsi_overbought * weights["rsi"]) + \
                (feature_momentum * weights["momentum"])
                
+    logger.info(f"[AI MODEL EVAL] Рассчитанный скоринг: {ai_score:.4f}, RSI: {rsi:.2f}, EMA: {ema:.4f}")
     return "UP" if ai_score >= 0 else "DOWN"
 
 def generate_otc_candles(asset_name, count=50):
@@ -408,11 +443,15 @@ def generate_otc_candles(asset_name, count=50):
 
 @app.get("/get_signal")
 async def get_signal(asset: str, timeframe: str):
-    await asyncio.sleep(1.2)  
+    logger.info(f"Запрос ИИ-сигнала для актива: {asset} [{timeframe}]")
+    
+    # 1. Имитируем тяжелый проход нейросети (визуальный эффект для клиентов)
+    await asyncio.sleep(1.8)  
     
     is_otc = "OTC" in asset
     clean_asset = asset.replace(" OTC", "").strip()
     
+    # 2. Получение или симуляция исторического потока тиков/цен
     if is_otc:
         prices = generate_otc_candles(asset, count=50)
     else:
@@ -423,20 +462,32 @@ async def get_signal(asset: str, timeframe: str):
                 response = await client.get(url, timeout=3.0)
                 candles = response.json()
                 prices = [float(c[4]) for c in candles]
+                logger.info(f"Успешно выгружены живые котировки {binance_symbol} из Binance API.")
         except Exception as e:
+            logger.error(f"Парсинг Binance API упал ({e}), аварийный переход на квантовую OTC генерацию.")
             prices = generate_otc_candles(clean_asset, count=50)
 
+    # 3. Инжиниринг фичей (Индикаторы)
     rsi = calculate_rsi(prices)
     ema = calculate_ema(prices)
     
-    # Прямой прогон через ИИ-логику без влияния рандомного коридора винрейта
+    # 4. Прогон через математическое ядро
     calculated_signal = ai_analyze_market(prices, rsi, ema)
     
-    # Генерация детерминированного показателя проходимости на основе RSI и EMA
+    # 5. Детерминированная точность на основе уверенности математических метрик
     base_accuracy = 70.0 + (abs(rsi - 50.0) * 0.5)
     accuracy = round(min(max(base_accuracy, 65.0), 94.5), 1)
 
     payout = 92 if is_otc else 82
+    
+    # Запись события в историю операций
+    db = get_db()
+    db["history"].append({
+        "asset": asset, "timeframe": timeframe, "signal": calculated_signal, 
+        "accuracy": accuracy, "time": datetime.now().strftime('%H:%M:%S')
+    })
+    save_db(db)
+    
     return {
         "signal": calculated_signal, 
         "payout": payout, 
@@ -560,6 +611,7 @@ async def index():
                     const response = await fetch('/check_user_status?username=' + encodeURIComponent(localUser));
                     const data = await response.json();
                     if (data.status === 'approved') {{ showScreen('terminal-screen'); changeLang(); }} 
+                    else if (data.status === 'blocked') {{ showScreen('blocked-screen'); }}
                     else {{ localStorage.removeItem('tg_username'); showScreen('auth-screen'); }}
                 }} catch(e) {{ showScreen('auth-screen'); }}
             }}
@@ -588,7 +640,7 @@ async def index():
             
             const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦" }};
             const dictionary = {{ 
-                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК ИИ", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРИТТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
+                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК ИИ", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
                 en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET AI", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
                 ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК ШІ", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
             }};
@@ -710,5 +762,6 @@ async def index():
     """
 
 if __name__ == "__main__":
+    logger.info("Запуск HROM QUANTUM CORE PRODUCTION ENGINE...")
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
