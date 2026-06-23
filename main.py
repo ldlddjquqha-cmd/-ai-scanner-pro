@@ -12,7 +12,7 @@ app = FastAPI()
 
 # --- КОНФИГУРАЦИЯ СИСТЕМЫ И ТЕЛЕГРАМ БОТА ---
 DB_FILE = "requests.json"
-BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"
+BOT_TOKEN = "8761108877:AAGzMIeErZoGcVlLvd-yO-w7FZbIezCQ9SE"
 ADMIN_CHAT_ID = "6765689893"
 
 def get_db():
@@ -304,7 +304,6 @@ async def request_access(username: str = Form(...), code: str = Form(...)):
     return JSONResponse({"success": True, "message": "Код успешно активирован! Загрузка..."})
 
 # --- ПОЛНЫЙ МАССИВ АКТИВОВ БЕЗ СОКРАЩЕНИЙ И СЖАТИЙ ---
-
 BINANCE_MAPPING = {
     "EUR/USD": "EURUSDT",
     "GBP/USD": "GBPUSDT",
@@ -446,7 +445,7 @@ def generate_otc_candles(asset_name, count=50):
 async def get_signal(asset: str, timeframe: str):
     print(f"[CORE LOG] Запрос сигнала через ИИ-ядро. Актив: {asset}, Свеча: {timeframe}")
     
-    await asyncio.sleep(2.5)  # Увеличенная задержка для красивого прохода шагов ИИ-сканирования на фронте
+    await asyncio.sleep(2.5)  # Задержка для прохода шагов ИИ-сканирования
     
     is_otc = "OTC" in asset
     clean_asset = asset.replace(" OTC", "").strip()
@@ -479,7 +478,7 @@ async def get_signal(asset: str, timeframe: str):
         "session_verified": True
     }
 
-# --- ПОЛНОЦЕННЫЙ ОДНОСТРАНИЧНЫЙ ИНТЕРФЕЙС ТЕРМИНАЛА ---
+# --- ПОЛНЫЙ ИНТЕРФЕЙС ТЕРМИНАЛА С ИИ-КАМЕРОЙ ---
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return rf"""
@@ -496,6 +495,7 @@ async def index():
             input::placeholder {{ color: #4b5975; }}
             @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
             @keyframes shine {{ 0% {{ background-position: 0% 50%; }} 50% {{ background-position: 100% 50%; }} 100% {{ background-position: 0% 50%; }} }}
+            @keyframes scannerLine {{ 0% {{ top: 0%; }} 50% {{ top: 100%; }} 100% {{ top: 0%; }} }}
             .loader {{ width: 45px; height: 45px; border: 4px solid #161b26; border-top: 4px solid #a855f7; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 15px auto; display: none; }}
             select {{ width: 100%; padding: 14px; background: #0f131e; border: 1px solid #1a2233; border-radius: 14px; font-size: 14px; font-weight: 600; color: #ffffff; outline: none; appearance: none; }}
             label {{ font-size: 11px; font-weight: bold; color: #4b5975; display: block; margin-bottom: 5px; letter-spacing: 0.8px; text-transform: uppercase; }}
@@ -503,6 +503,7 @@ async def index():
             .btn-activate {{ width: 100%; max-width: 320px; padding: 16px; background: linear-gradient(135deg, #963bfe 0%, #641bfa 100%); border: none; color: white; font-weight: 800; border-radius: 14px; cursor: pointer; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; box-shadow: 0 5px 20px rgba(100,27,250,0.4); transition: transform 0.2s; }}
             .btn-activate:disabled {{ background: #1a2233; color: #4b5975; cursor: not-allowed; box-shadow: none; }}
             .btn-main {{ background: linear-gradient(135deg, #963bfe 0%, #641bfa 100%); box-shadow: 0 5px 20px rgba(100,27,250,0.4); }}
+            .btn-camera {{ background: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%); box-shadow: 0 5px 20px rgba(0,114,255,0.4); display: flex; align-items: center; justify-content: center; gap: 8px; }}
             .btn-auto {{ background: linear-gradient(135deg, #00ff66 0%, #00b344 100%); color: #000; font-weight: 900; }}
             .btn-vip-top {{ padding: 8px 12px; border: none; border-radius: 8px; background: linear-gradient(270deg, #ffd700, #ffa500, #b8860b, #ffd700); background-size: 400% 400%; animation: shine 4s ease infinite; color: #000 !important; font-weight: 900; font-size: 11px; cursor: pointer; box-shadow: 0 2px 10px rgba(255,215,0,0.3); text-transform: uppercase; letter-spacing: 0.5px; }}
             .btn-pocket {{ background: #141924; border: 1px solid #222d42; color: #38ef7d; width: 100%; }}
@@ -515,9 +516,17 @@ async def index():
             .wr-val {{ font-size: 22px; font-weight: 900; color: #00ff66; margin-bottom: 10px; text-shadow: 0 0 15px rgba(0,255,102,0.2); }}
             .counter-box {{ display: flex; gap: 10px; }}
             .count-btn {{ flex: 1; display: flex; flex-direction: column; align-items: center; background: #0f131e; padding: 10px; border-radius: 12px; border: 1px solid #1a2233; cursor: pointer; font-weight: 800; font-size: 13px; transition: 0.2s; color: white; }}
-            
-            /* Стили для строк ИИ-сканера */
             .ai-scan-log {{ font-size: 11px; color: #00ff66; font-family: monospace; text-align: center; margin-top: 8px; min-height: 16px; font-weight: bold; letter-spacing: 0.3px; }}
+            
+            /* Стили видоискателя ИИ-камеры */
+            .camera-view {{ width: 100%; height: 160px; background: #020406; border: 2px dashed #00c6ff; border-radius: 14px; position: relative; margin-bottom: 15px; display: none; overflow: hidden; justify-content: center; align-items: center; }}
+            .camera-line {{ width: 100%; height: 2px; background: linear-gradient(90deg, transparent, #00c6ff, transparent); position: absolute; left: 0; animation: scannerLine 2s linear infinite; }}
+            .camera-corner {{ position: absolute; width: 12px; height: 12px; border: 2px solid #00c6ff; }}
+            .tl {{ top: 5px; left: 5px; border-right: none; border-bottom: none; }}
+            .tr {{ top: 5px; right: 5px; border-left: none; border-bottom: none; }}
+            .bl {{ bottom: 5px; left: 5px; border-right: none; border-top: none; }}
+            .br {{ bottom: 5px; right: 5px; border-left: none; border-top: none; }}
+            .camera-text {{ color: #00c6ff; font-family: monospace; font-size: 11px; font-weight: bold; text-shadow: 0 0 5px rgba(0,198,255,0.5); z-index: 5; text-align: center; padding: 10px; }}
         </style>
     </head>
     <body>
@@ -556,6 +565,16 @@ async def index():
                     </div>
                     <div id="lbl_reset" onclick="resetStats()" style="font-size:9px; color:#4b5975; margin-top:12px; cursor:pointer; text-decoration:underline;">СБРОСИТЬ СТАТИСТИКУ</div>
                 </div>
+                
+                <div id="cameraView" class="camera-view">
+                    <div class="camera-corner tl"></div>
+                    <div class="camera-corner tr"></div>
+                    <div class="camera-corner bl"></div>
+                    <div class="camera-corner br"></div>
+                    <div class="camera-line"></div>
+                    <div id="cameraText" class="camera-text">НАВЕДИТЕ НА РЫНОК И НАЖМИТЕ НА КНОПКУ НИЖЕ</div>
+                </div>
+
                 <div style="text-align:left; margin-bottom:14px;"><label id="lbl_market">КАТЕГОРИЯ РЫНКА</label><select id="cat" onchange="updCategory()"></select></div>
                 <div id="sub_cat_block" style="text-align:left; margin-bottom:14px;"><label id="lbl_type">ТИП АКТИВА</label><select id="sub_cat" onchange="updSubCategory()"></select></div>
                 <div style="text-align:left; margin-bottom:14px;"><label id="lbl_asset">АКТИВНАЯ ПАРА</label><select id="asset" onchange="updAsset()"></select><span id="payout_lbl" class="payout-badge">PAYOUT: 92%</span></div>
@@ -563,9 +582,11 @@ async def index():
                     <div style="flex:1;"><label id="lbl_tf">ИНТЕРВАЛ СВЕЧИ</label><select id="time"></select></div>
                     <div style="flex:1;"><label id="lbl_exp">ЭКСПИРАЦИЯ</label><select id="exp"></select></div>
                 </div>
-                <button id="runBtn" class="btn btn-main" onclick="startFlow(false)">СКАНИРОВАТЬ РЫНОК</button>
-                <button id="autoBtn" class="btn btn-auto" onclick="startFlow(true)">ИИ СДЕЛАТЬ ЗА ВАС</button>
-                <button id="martBtn" class="btn btn-mart" onclick="startFlow(false, true)">ПЕРЕКРЫТИЕ</button>
+                
+                <button id="cameraBtn" class="btn btn-camera" onclick="toggleCameraMode()">📸 ИИ-КАМЕРА: ВЫКЛ</button>
+                <button id="runBtn" class="btn btn-main" onclick="startFlow(false, false)">СКАНИРОВАТЬ РЫНОК</button>
+                <button id="autoBtn" class="btn btn-auto" onclick="startFlow(true, false)">ИИ СДЕЛАТЬ ЗА ВАС</button>
+                <button id="martBtn" class="btn btn-mart" onclick="startFlow(false, false, true)">ПЕРЕКРЫТИЕ</button>
                 
                 <a href="https://pocketoption.com/register" target="_blank" style="text-decoration: none;"><button id="btn_pocket" class="btn btn-pocket">ОТКРЫТЬ POCKET OPTION</button></a>
                 
@@ -594,6 +615,7 @@ async def index():
             const options_min_ua = ["1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "6 хв", "7 хв", "8 хв", "9 хв", "10 хв", "15 хв"];
 
             let wins = 0, losses = 0, currentBet = 100, martStep = 0, currentInterval = null, currentExpInterval = null;
+            let cameraModeActive = false;
 
             async function checkAuth() {{
                 const localUser = localStorage.getItem('tg_username');
@@ -630,11 +652,37 @@ async def index():
             
             const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦" }};
             const dictionary = {{ 
-                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", auto: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
-                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET", auto: "AI DO FOR YOU", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
-                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", auto: "ШІ ЗРОБИТЬ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
+                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", camScan: "НАЖМИТЕ ДЛЯ СКАНИРОВАНИЯ", camActive: "📸 ИИ-КАМЕРА: ВКЛ", camDisabled: "📸 ИИ-КАМЕРА: ВЫКЛ", camTextActive: "🎥 ОБЪЕКТИВ ИИ АКТИВИРОВАН. НАВЕДИТЕ ЭКРАН НА ГРАФИК POCKET OPTION И НАЖМИТЕ СКАНИРОВАТЬ", camTextProcess: "🎯 ИИ СКАНИРУЕТ ПИКСЕЛИ И ОРДЕРБУК ГРАФИКА...", auto: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
+                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET", camScan: "CLICK TO SCAN GRAPH", camActive: "📸 AI-CAMERA: ON", camDisabled: "📸 AI-CAMERA: OFF", camTextActive: "🎥 AI LENS ACTIVE. POINT YOUR SCREEN AT THE POCKET OPTION CHART AND CLICK SCAN", camTextProcess: "🎯 AI SCANNING CHART PIXELS AND ORDERBOOK...", auto: "AI DO FOR YOU", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
+                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", camScan: "НАТИСНІТЬ ДЛЯ СКАНУВАННЯ", camActive: "📸 ШІ-КАМЕРА: ВКЛ", camDisabled: "📸 ШІ-КАМЕРА: ВИКЛ", camTextActive: "🎥 ОБ'ЄКТИВ ШІ АКТИВОВАНО. НАВЕДІТЬ ЕКРАН НА ГРАФІК POCKET OPTION ТА НАТИСНІТЬ СКАНУВАТИ", camTextProcess: "🎯 ШІ СКАНУЄ ПІКСЕЛІ ТА ОРДЕРБУК ГРАФІКА...", auto: "ШІ ЗРОБИТЬ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
             }};
             
+            function toggleCameraMode() {{
+                let l = document.getElementById('lang').value;
+                let d = dictionary[l] || dictionary['en'];
+                cameraModeActive = !cameraModeActive;
+                
+                const camView = document.getElementById('cameraView');
+                const runBtn = document.getElementById('runBtn');
+                const camBtn = document.getElementById('cameraBtn');
+                const camText = document.getElementById('cameraText');
+                
+                if (cameraModeActive) {{
+                    camView.style.display = 'flex';
+                    camBtn.innerText = d.camActive;
+                    camBtn.style.background = "linear-gradient(135deg, #00f5d4 0%, #00bbf9 100%)";
+                    runBtn.innerText = d.camScan;
+                    runBtn.style.background = "linear-gradient(135deg, #ff007f 0%, #7928ca 100%)";
+                    camText.innerText = d.camTextActive;
+                }} else {{
+                    camView.style.display = 'none';
+                    camBtn.innerText = d.camDisabled;
+                    camBtn.style.background = "linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)";
+                    runBtn.innerText = d.scan;
+                    runBtn.style.background = "linear-gradient(135deg, #963bfe 0%, #641bfa 100%)";
+                }}
+            }}
+
             function changeLang() {{ 
                 let l = document.getElementById('lang').value;
                 let d = dictionary[l] || dictionary['en'];
@@ -644,8 +692,6 @@ async def index():
                 document.getElementById('lbl_asset').innerText = d.asset; 
                 document.getElementById('lbl_tf').innerText = d.tf; 
                 document.getElementById('lbl_exp').innerText = d.exp; 
-                document.getElementById('runBtn').innerText = d.scan; 
-                document.getElementById('autoBtn').innerText = d.auto; 
                 document.getElementById('btn_pocket').innerText = d.pocket; 
                 document.getElementById('btn_supp').innerText = d.support; 
                 document.getElementById('status').innerText = d.ready; 
@@ -654,6 +700,18 @@ async def index():
                 document.getElementById('lbl_profit').innerText = d.profit;
                 document.getElementById('lbl_loss').innerText = d.loss;
                 document.getElementById('lbl_reset').innerText = d.reset;
+                
+                if(cameraModeActive) {{
+                    document.getElementById('cameraBtn').innerText = d.camActive;
+                    document.getElementById('runBtn').innerText = d.camScan;
+                    document.getElementById('cameraText').innerText = d.camTextActive;
+                }} else {{
+                    document.getElementById('cameraBtn').innerText = d.camDisabled;
+                    document.getElementById('runBtn').innerText = d.scan;
+                }}
+                
+                document.getElementById('autoBtn').innerText = d.auto; 
+                
                 let catSelect = document.getElementById('cat'); 
                 catSelect.innerHTML = ""; 
                 Object.keys(rawData[l]).forEach(c => {{ catSelect.innerHTML += `<option>${{c}}</option>`; }}); 
@@ -681,7 +739,6 @@ async def index():
                 expSelect.innerHTML = min_opts.map(o => `<option>${{o}}</option>`).join('');
             }}
             
-            // Анимация шагов ИИ-сканера
             function runAiScanAnimation(lang) {{
                 const logs = {{
                     ru: ["🔍 Инициализация ИИ-Vision...", "📊 Сканирование сетки индикаторов...", "⏱ Чтение счетчиков объемов...", "🤖 Финализация математической модели..."],
@@ -729,15 +786,24 @@ async def index():
                 document.getElementById('timer').innerText = "";
                 document.getElementById('loader').style.display = 'block';
                 
-                // Запуск визуального сканирования индикаторов и счетчиков
+                if (cameraModeActive) {{
+                    document.getElementById('cameraText').innerText = d.camTextProcess;
+                    document.getElementById('cameraView').style.borderColor = "#ff007f";
+                }}
+                
                 let animInterval = runAiScanAnimation(l);
                 
                 let resp = await fetch(`/get_signal?asset=${{encodeURIComponent(document.getElementById('asset').value)}}&timeframe=${{encodeURIComponent(document.getElementById('time').value)}}`);
                 let data = await resp.json();
                 
                 clearInterval(animInterval);
-                document.getElementById('ai-scan-status').innerText = ""; // Очищаем логи сканера
+                document.getElementById('ai-scan-status').innerText = ""; 
                 document.getElementById('loader').style.display = 'none';
+                
+                if (cameraModeActive) {{
+                    document.getElementById('cameraText').innerText = d.camTextActive;
+                    document.getElementById('cameraView').style.borderColor = "#00c6ff";
+                }}
                 
                 document.getElementById('res').innerText = (data.signal == "UP" ? d.up : d.down);
                 document.getElementById('res').style.color = data.signal == "UP" ? "#00ff66" : "#ff3344";
@@ -790,7 +856,7 @@ async def index():
         </script>
     </body>
     </html>
-    """
+    """)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
