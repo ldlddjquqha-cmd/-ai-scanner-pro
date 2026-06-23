@@ -25,7 +25,7 @@ app = FastAPI(title="HROM QUANTUM CORE GLOBAL", version="16.0")
 
 # --- КОНФИГУРАЦИЯ СИСТЕМЫ И ТЕЛЕГРАМ БОТА ---
 DB_FILE = "requests.json"
-BOT_TOKEN = "8761108877:AAHGS5tME2dqGF6iMC1IIN9HzgWJ0wgNGTU"
+BOT_TOKEN = "8761108877:AAGzMIeErZoGcVlLvd-yO-w7FZbIezCQ9SE"
 ADMIN_CHAT_ID = "6765689893"
 
 # --- ИНФРАСТРУКТУРА БАЗЫ ДАННЫХ JSON ---
