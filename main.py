@@ -445,7 +445,7 @@ def generate_otc_candles(asset_name, count=50):
 async def get_signal(asset: str, timeframe: str):
     print(f"[CORE LOG] Запрос сигнала через ИИ-ядро. Актив: {asset}, Свеча: {timeframe}")
     
-    await asyncio.sleep(2.5)  # Задержка для прохода шагов ИИ-сканирования
+    await asyncio.sleep(2.5)
     
     is_otc = "OTC" in asset
     clean_asset = asset.replace(" OTC", "").strip()
@@ -481,6 +481,8 @@ async def get_signal(asset: str, timeframe: str):
 # --- ПОЛНЫЙ ИНТЕРФЕЙС ТЕРМИНАЛА С ИИ-КАМЕРОЙ ---
 @app.get("/", response_class=HTMLResponse)
 async def index():
+    assets_json = json.dumps(ASSETS_DATA)
+    
     return rf"""
     <html style="background:#06080c; color:#ffffff; font-family:'Segoe UI', Roboto, sans-serif; margin:0; padding:0;">
     <head>
@@ -518,7 +520,6 @@ async def index():
             .count-btn {{ flex: 1; display: flex; flex-direction: column; align-items: center; background: #0f131e; padding: 10px; border-radius: 12px; border: 1px solid #1a2233; cursor: pointer; font-weight: 800; font-size: 13px; transition: 0.2s; color: white; }}
             .ai-scan-log {{ font-size: 11px; color: #00ff66; font-family: monospace; text-align: center; margin-top: 8px; min-height: 16px; font-weight: bold; letter-spacing: 0.3px; }}
             
-            /* Стили видоискателя ИИ-камеры */
             .camera-view {{ width: 100%; height: 160px; background: #020406; border: 2px dashed #00c6ff; border-radius: 14px; position: relative; margin-bottom: 15px; display: none; overflow: hidden; justify-content: center; align-items: center; }}
             .camera-line {{ width: 100%; height: 2px; background: linear-gradient(90deg, transparent, #00c6ff, transparent); position: absolute; left: 0; animation: scannerLine 2s linear infinite; }}
             .camera-corner {{ position: absolute; width: 12px; height: 12px; border: 2px solid #00c6ff; }}
@@ -608,7 +609,7 @@ async def index():
         </div>
 
         <script>
-            const rawData = {json.dumps(ASSETS_DATA)};
+            const assetsData = {assets_json};
             
             const options_min_ru = ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин", "15 мин"];
             const options_min_en = ["1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min", "15 min"];
@@ -624,6 +625,7 @@ async def index():
                     const response = await fetch('/check_user_status?username=' + encodeURIComponent(localUser));
                     const data = await response.json();
                     if (data.status === 'approved') {{ showScreen('terminal-screen'); changeLang(); }} 
+                    else if (data.status === 'blocked') {{ showScreen('blocked-screen'); }}
                     else {{ localStorage.removeItem('tg_username'); showScreen('auth-screen'); }}
                 }} catch(e) {{ showScreen('auth-screen'); }}
             }}
@@ -633,6 +635,30 @@ async def index():
                 document.getElementById('terminal-screen').style.display = 'none';
                 document.getElementById('blocked-screen').style.display = 'none';
                 document.getElementById(screenId).style.display = 'flex';
+            }}
+
+            async function sendForm() {{
+                const u = document.getElementById('username').value;
+                const c = document.getElementById('code').value;
+                if(!u || !c) return;
+                
+                const fd = new FormData();
+                fd.append('username', u);
+                fd.append('code', c);
+                
+                try {{
+                    const r = await fetch('/request_access', {{ method: 'POST', body: fd }});
+                    const d = await r.json();
+                    if(d.success) {{
+                        localStorage.setItem('tg_username', u.replace("@","").trim());
+                        document.getElementById('success-msg').innerText = d.message;
+                        document.getElementById('success-msg').style.display = 'block';
+                        setTimeout(() => window.location.reload(), 1500);
+                    }} else {{
+                        document.getElementById('error-msg').innerText = d.message;
+                        document.getElementById('error-msg').style.display = 'block';
+                    }}
+                }} catch(e) {{ }}
             }}
 
             function logout() {{ localStorage.removeItem('tg_username'); window.location.reload(); }}
@@ -653,211 +679,198 @@ async def index():
             const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦" }};
             const dictionary = {{ 
                 ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "СКАНИРОВАТЬ РЫНОК", camScan: "НАЖМИТЕ ДЛЯ СКАНИРОВАНИЯ", camActive: "📸 ИИ-КАМЕРА: ВКЛ", camDisabled: "📸 ИИ-КАМЕРА: ВЫКЛ", camTextActive: "🎥 ОБЪЕКТИВ ИИ АКТИВИРОВАН. НАВЕДИТЕ ЭКРАН НА ГРАФИК POCKET OPTION И НАЖМИТЕ СКАНИРОВАТЬ", camTextProcess: "🎯 ИИ СКАНИРУЕТ ПИКСЕЛИ И ОРДЕРБУК ГРАФИКА...", auto: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", enter: "ВХОД ЧЕРЕЗ: ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
-                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "SCAN MARKET", camScan: "CLICK TO SCAN GRAPH", camActive: "📸 AI-CAMERA: ON", camDisabled: "📸 AI-CAMERA: OFF", camTextActive: "🎥 AI LENS ACTIVE. POINT YOUR SCREEN AT THE POCKET OPTION CHART AND CLICK SCAN", camTextProcess: "🎯 AI SCANNING CHART PIXELS AND ORDERBOOK...", auto: "AI DO FOR YOU", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
-                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", camScan: "НАТИСНІТЬ ДЛЯ СКАНУВАННЯ", camActive: "📸 ШІ-КАМЕРА: ВКЛ", camDisabled: "📸 ШІ-КАМЕРА: ВИКЛ", camTextActive: "🎥 ОБ'ЄКТИВ ШІ АКТИВОВАНО. НАВЕДІТЬ ЕКРАН НА ГРАФІК POCKET OPTION ТА НАТИСНІТЬ СКАНУВАТИ", camTextProcess: "🎯 ШІ СКАНУЄ ПІКСЕЛІ ТА ОРДЕРБУК ГРАФІКА...", auto: "ШІ ЗРОБИТЬ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
+                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "MARKET SCAN", camScan: "CLICK TO SCAN GRAPH", camActive: "📸 AI-CAMERA: ON", camDisabled: "📸 AI-CAMERA: OFF", camTextActive: "🎥 AI LENS ACTIVE. POINT YOUR SCREEN AT THE POCKET OPTION CHART AND CLICK SCAN", camTextProcess: "🎯 AI SCANNING CHART PIXELS AND ORDERBOOK...", auto: "AI DO FOR YOU", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", enter: "ENTRY IN: ", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
+                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "СКАНУВАТИ РИНОК", camScan: "НАТИСНІТЬ ДЛЯ СКАНУВАННЯ", camActive: "📸 ШІ-КАМЕРА: ВКЛ", camDisabled: "📸 ШІ-КАМЕРА: ВИКЛ", camTextActive: "🎥 ОБ'ЄКТИВ ШІ АКТИВОВАНО. НАВЕДІТЬ ЕКРАН НА ГРАФІК POCKET OPTION ТА НАТИСНІТЬ СКАНУВАТИ", camTextProcess: "🎯 ШІ СКАНУЄ ПІКСЕЛІ ТА ОРДЕРБУК ГРАФІКА...", auto: "ШІ ЗРОБИТЬ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Profit", loss: "Loss", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", enter: "ВХІД ЧЕРЕЗ: ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
             }};
-            
-            function toggleCameraMode() {{
+
+            function changeLang() {{
                 let l = document.getElementById('lang').value;
-                let d = dictionary[l] || dictionary['en'];
-                cameraModeActive = !cameraModeActive;
+                document.getElementById('flag_icon').innerText = flags[l];
+                document.getElementById('lbl_market').innerText = dictionary[l].market;
+                document.getElementById('lbl_type').innerText = dictionary[l].type;
+                document.getElementById('lbl_asset').innerText = dictionary[l].asset;
+                document.getElementById('lbl_tf').innerText = dictionary[l].tf;
+                document.getElementById('lbl_exp').innerText = dictionary[l].exp;
+                document.getElementById('btn_pocket').innerText = dictionary[l].pocket;
+                document.getElementById('btn_supp').innerText = dictionary[l].support;
+                document.getElementById('lbl_reset').innerText = dictionary[l].reset;
+                document.getElementById('lbl_profit').innerText = dictionary[l].profit;
+                document.getElementById('lbl_loss').innerText = dictionary[l].loss;
+                document.getElementById('vip_btn_text').innerText = dictionary[l].vip;
+                document.getElementById('martBtn').innerText = dictionary[l].mart + " (" + (currentBet*2) + "$)";
                 
-                const camView = document.getElementById('cameraView');
-                const runBtn = document.getElementById('runBtn');
-                const camBtn = document.getElementById('cameraBtn');
-                const camText = document.getElementById('cameraText');
-                
-                if (cameraModeActive) {{
-                    camView.style.display = 'flex';
-                    camBtn.innerText = d.camActive;
-                    camBtn.style.background = "linear-gradient(135deg, #00f5d4 0%, #00bbf9 100%)";
-                    runBtn.innerText = d.camScan;
-                    runBtn.style.background = "linear-gradient(135deg, #ff007f 0%, #7928ca 100%)";
-                    camText.innerText = d.camTextActive;
+                updButtonsText();
+                fillCategories();
+            }}
+
+            function updButtonsText() {{
+                let l = document.getElementById('lang').value;
+                if(cameraModeActive) {{
+                    document.getElementById('runBtn').innerText = dictionary[l].camScan;
+                    document.getElementById('cameraBtn').innerText = dictionary[l].camActive;
                 }} else {{
-                    camView.style.display = 'none';
-                    camBtn.innerText = d.camDisabled;
-                    camBtn.style.background = "linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)";
-                    runBtn.innerText = d.scan;
-                    runBtn.style.background = "linear-gradient(135deg, #963bfe 0%, #641bfa 100%)";
+                    document.getElementById('runBtn').innerText = dictionary[l].scan;
+                    document.getElementById('cameraBtn').innerText = dictionary[l].camDisabled;
+                }}
+                document.getElementById('autoBtn').innerText = dictionary[l].auto;
+            }}
+
+            function fillCategories() {{
+                let l = document.getElementById('lang').value;
+                let cats = Object.keys(assetsData[l]);
+                let el = document.getElementById('cat');
+                el.innerHTML = '';
+                cats.forEach(c => el.options.add(new Option(c, c)));
+                updCategory();
+            }}
+
+            function updCategory() {{
+                let l = document.getElementById('lang').value;
+                let c = document.getElementById('cat').value;
+                let subCats = Object.keys(assetsData[l][c]);
+                let subBlock = document.getElementById('sub_cat_block');
+                let el = document.getElementById('sub_cat');
+                el.innerHTML = '';
+                
+                if(subCats.length === 0 || Array.isArray(assetsData[l][c])) {{
+                    subBlock.style.display = 'none';
+                    fillAssets(assetsData[l][c]);
+                }} else {{
+                    subBlock.style.display = 'block';
+                    subCats.forEach(sc => el.options.add(new Option(sc, sc)));
+                    updSubCategory();
                 }}
             }}
 
-            function changeLang() {{ 
+            function updSubCategory() {{
                 let l = document.getElementById('lang').value;
-                let d = dictionary[l] || dictionary['en'];
-                document.getElementById('flag_icon').innerText = flags[l];
-                document.getElementById('lbl_market').innerText = d.market; 
-                document.getElementById('lbl_type').innerText = d.type; 
-                document.getElementById('lbl_asset').innerText = d.asset; 
-                document.getElementById('lbl_tf').innerText = d.tf; 
-                document.getElementById('lbl_exp').innerText = d.exp; 
-                document.getElementById('btn_pocket').innerText = d.pocket; 
-                document.getElementById('btn_supp').innerText = d.support; 
-                document.getElementById('status').innerText = d.ready; 
-                document.getElementById('vip_btn_text').innerText = d.vip; 
-                document.getElementById('martBtn').innerText = d.mart;
-                document.getElementById('lbl_profit').innerText = d.profit;
-                document.getElementById('lbl_loss').innerText = d.loss;
-                document.getElementById('lbl_reset').innerText = d.reset;
+                let c = document.getElementById('cat').value;
+                let sc = document.getElementById('sub_cat').value;
+                fillAssets(assetsData[l][c][sc]);
+            }}
+
+            function fillAssets(arr) {{
+                let el = document.getElementById('asset');
+                el.innerHTML = '';
+                arr.forEach(a => el.options.add(new Option(a, a)));
+                
+                let tEl = document.getElementById('time');
+                tEl.innerHTML = '';
+                ["1m", "5m", "15m"].forEach(t => tEl.options.add(new Option(t, t)));
+                
+                let l = document.getElementById('lang').value;
+                let expEl = document.getElementById('exp');
+                expEl.innerHTML = '';
+                let opts = l=='ru' ? options_min_ru : (l=='en' ? options_min_en : options_min_ua);
+                opts.forEach(o => expEl.options.add(new Option(o, o)));
+                
+                updAsset();
+            }}
+
+            function updAsset() {{
+                let a = document.getElementById('asset').value;
+                document.getElementById('payout_lbl').innerText = "PAYOUT: " + (a.includes("OTC") ? "92%" : "82%");
+            }}
+
+            function toggleCameraMode() {{
+                cameraModeActive = !cameraModeActive;
+                let view = document.getElementById('cameraView');
+                let txt = document.getElementById('cameraText');
+                let l = document.getElementById('lang').value;
                 
                 if(cameraModeActive) {{
-                    document.getElementById('cameraBtn').innerText = d.camActive;
-                    document.getElementById('runBtn').innerText = d.camScan;
-                    document.getElementById('cameraText').innerText = d.camTextActive;
+                    view.style.display = 'flex';
+                    txt.innerText = dictionary[l].camTextActive;
                 }} else {{
-                    document.getElementById('cameraBtn').innerText = d.camDisabled;
-                    document.getElementById('runBtn').innerText = d.scan;
+                    view.style.display = 'none';
                 }}
-                
-                document.getElementById('autoBtn').innerText = d.auto; 
-                
-                let catSelect = document.getElementById('cat'); 
-                catSelect.innerHTML = ""; 
-                Object.keys(rawData[l]).forEach(c => {{ catSelect.innerHTML += `<option>${{c}}</option>`; }}); 
-                updCategory(); 
+                updButtonsText();
             }}
-            
-            function calcLocalPayout(assetName) {{ return assetName.includes("OTC") ? 92 : 82; }}
-            function updCategory() {{ let l = document.getElementById('lang').value, c = document.getElementById('cat').value, types = Object.keys(rawData[l][c]); document.getElementById('sub_cat').innerHTML = types.map(t => `<option>${{t}}</option>`).join(''); updSubCategory(); }}
-            function updSubCategory() {{ let l = document.getElementById('lang').value, c = document.getElementById('cat').value, t = document.getElementById('sub_cat').value, assets = rawData[l][c][t] || []; document.getElementById('asset').innerHTML = assets.map(a => `<option>${{a}}</option>`).join(''); updAsset(); }}
-            
-            function updAsset() {{ 
+
+            function runScanLogs(l) {{
+                let logs = l=='ru' ? ["Парсинг стакана...", "Анализ объемов...", "Сканирование RSI...", "Фильтрация тренда..."] : 
+                           (l=='en' ? ["Orderbook parsing...", "Volume analysis...", "RSI scanning...", "Trend filtering..."] : 
+                           ["Парсинг стакана...", "Аналіз об'ємів...", "Сканування RSI...", "Фільтрація тренду..."]);
+                let block = document.getElementById('ai-scan-status');
+                block.innerText = logs[0];
+                setTimeout(() => block.innerText = logs[1], 600);
+                setTimeout(() => block.innerText = logs[2], 1200);
+                setTimeout(() => block.innerText = logs[3], 1800);
+            }}
+
+            function startFlow(isAuto, isSec, isMart = false) {{
+                clearInterval(currentInterval);
+                clearInterval(currentExpInterval);
+                
                 let l = document.getElementById('lang').value;
-                let asset = document.getElementById('asset').value; 
-                document.getElementById('payout_lbl').innerText = `PAYOUT: ${{calcLocalPayout(asset)}}%`; 
+                let status = document.getElementById('status');
+                let loader = document.getElementById('loader');
+                let res = document.getElementById('res');
+                let acc = document.getElementById('accuracy');
+                let timer = document.getElementById('timer');
+                let block = document.getElementById('ai-scan-status');
                 
-                let timeSelect = document.getElementById('time');
-                let expSelect = document.getElementById('exp');
+                if(isMart) {{ martStep++; currentBet *= 2; }} 
+                else if(!isMart) {{ currentBet = 100; martStep = 0; }}
                 
-                let min_opts = [];
-                if(l === 'ru') {{ min_opts = options_min_ru; }}
-                else if(l === 'ua') {{ min_opts = options_min_ua; }}
-                else {{ min_opts = options_min_en; }}
+                document.getElementById('martBtn').innerText = dictionary[l].mart + " (" + (currentBet*2) + "$)";
                 
-                timeSelect.innerHTML = min_opts.map(o => `<option>${{o}}</option>`).join('');
-                expSelect.innerHTML = min_opts.map(o => `<option>${{o}}</option>`).join('');
-            }}
-            
-            function runAiScanAnimation(lang) {{
-                const logs = {{
-                    ru: ["🔍 Инициализация ИИ-Vision...", "📊 Сканирование сетки индикаторов...", "⏱ Чтение счетчиков объемов...", "🤖 Финализация математической модели..."],
-                    en: ["🔍 Initializing AI-Vision...", "📊 Scanning Indicator Grid...", "⏱ Reading Order Book Counters...", "🤖 Finalizing Math Model..."],
-                    ua: ["🔍 Ініціалізація ШІ-Vision...", "📊 Сканування сітки індикаторів...", "⏱ Читання лічильників об'ємів...", "🤖 Фіналізація математичної моделі..."]
-                }};
+                if(cameraModeActive) document.getElementById('cameraText').innerText = dictionary[l].camTextProcess;
                 
-                let currentLogs = logs[lang] || logs['en'];
-                let step = 0;
-                let scanEl = document.getElementById('ai-scan-status');
-                scanEl.style.color = "#38ef7d";
-                scanEl.innerText = currentLogs[0];
+                status.innerText = "";
+                res.innerText = "--";
+                res.style.color = "#fff";
+                acc.style.display = "none";
+                timer.innerText = "";
+                loader.style.display = "block";
                 
-                let interval = setInterval(() => {{
-                    step++;
-                    if(step < currentLogs.length) {{
-                        scanEl.innerText = currentLogs[step];
-                    }} else {{
-                        clearInterval(interval);
-                    }}
-                }}, 600);
-                return interval;
-            }}
-            
-            async function startFlow(isAI, isMart = false) {{
-                if(currentInterval) clearInterval(currentInterval);
-                if(currentExpInterval) clearInterval(currentExpInterval);
-                let l = document.getElementById('lang').value;
-                let d = dictionary[l] || dictionary['en'];
+                runScanLogs(l);
                 
-                if(isAI) {{ 
-                    let cats = Object.keys(rawData[l]);
-                    let rCat = cats[Math.floor(Math.random()*cats.length)]; document.getElementById('cat').value = rCat; updCategory(); 
-                    let subCats = Object.keys(rawData[l][rCat]);
-                    let rSub = subCats[Math.floor(Math.random()*subCats.length)]; document.getElementById('sub_cat').value = rSub; updSubCategory();
-                    let assets = rawData[l][rCat][rSub];
-                    document.getElementById('asset').value = assets[Math.floor(Math.random()*assets.length)]; updAsset();
-                }}
-                if(!isMart) {{ currentBet = 100; martStep = 0; }} 
-                else {{ currentBet = (currentBet * 2.3).toFixed(2); martStep++; }}
+                let asset = document.getElementById('asset').value;
+                let tf = document.getElementById('time').value;
                 
-                document.getElementById('martBtn').style.display = 'none';
-                document.getElementById('res').innerText = "--";
-                document.getElementById('accuracy').style.display = 'none';
-                document.getElementById('timer').innerText = "";
-                document.getElementById('loader').style.display = 'block';
-                
-                if (cameraModeActive) {{
-                    document.getElementById('cameraText').innerText = d.camTextProcess;
-                    document.getElementById('cameraView').style.borderColor = "#ff007f";
-                }}
-                
-                let animInterval = runAiScanAnimation(l);
-                
-                let resp = await fetch(`/get_signal?asset=${{encodeURIComponent(document.getElementById('asset').value)}}&timeframe=${{encodeURIComponent(document.getElementById('time').value)}}`);
-                let data = await resp.json();
-                
-                clearInterval(animInterval);
-                document.getElementById('ai-scan-status').innerText = ""; 
-                document.getElementById('loader').style.display = 'none';
-                
-                if (cameraModeActive) {{
-                    document.getElementById('cameraText').innerText = d.camTextActive;
-                    document.getElementById('cameraView').style.borderColor = "#00c6ff";
-                }}
-                
-                document.getElementById('res').innerText = (data.signal == "UP" ? d.up : d.down);
-                document.getElementById('res').style.color = data.signal == "UP" ? "#00ff66" : "#ff3344";
-                document.getElementById('accuracy').style.display = 'block';
-                document.getElementById('accuracy').innerText = "ACCURACY: " + data.accuracy + "%";
-                
-                let expVal = document.getElementById('exp').value;
-                let expSeconds = parseInt(expVal.replace(/\D/g, '')) * 60;
-                
-                timerEl = document.getElementById('timer');
-                timerEl.innerText = d.open;
-                currentExpInterval = setInterval(() => {{
-                    if(expSeconds > 0) {{ timerEl.innerText = d.close + expSeconds + (l == 'ru' || l == 'ua' ? " сек" : " sec"); expSeconds--; }} 
-                    else {{ clearInterval(currentExpInterval); timerEl.innerText = d.end; document.getElementById('martBtn').style.display = 'block'; }}
-                }}, 1000);
+                fetch('/get_signal?asset=' + encodeURIComponent(asset) + '&timeframe=' + tf)
+                    .then(r => r.json())
+                    .then(d => {{
+                        loader.style.display = "none";
+                        block.innerText = "";
+                        if(cameraModeActive) document.getElementById('cameraText').innerText = dictionary[l].camTextActive;
+                        
+                        let signalText = d.signal === 'UP' ? dictionary[l].up : dictionary[l].down;
+                        res.innerText = signalText;
+                        res.style.color = d.signal === 'UP' ? "#00ff66" : "#ff3344";
+                        
+                        acc.innerText = "ACCURACY: " + d.accuracy + "%";
+                        acc.style.display = "block";
+                        
+                        document.getElementById('martBtn').style.display = "block";
+                        
+                        let left = 5;
+                        currentInterval = setInterval(() => {{
+                            timer.innerText = dictionary[l].enter + left + "s";
+                            left--;
+                            if(left < 0) {{
+                                clearInterval(currentInterval);
+                                let expSec = 60;
+                                currentExpInterval = setInterval(() => {{
+                                    timer.innerText = dictionary[l].open + " " + dictionary[l].close + expSec + "s";
+                                    expSec--;
+                                    if(expSec < 0) {{
+                                        clearInterval(currentExpInterval);
+                                        timer.innerText = dictionary[l].end;
+                                    }}
+                                }}, 1000);
+                            }}
+                        }}, 1000);
+                    }})
+                    .catch(() => {{ loader.style.display = "none"; block.innerText = ""; }});
             }}
 
-            async function sendForm() {{
-                const userInp = document.getElementById('username').value.trim().replace('@', '');
-                const codeInp = document.getElementById('code').value.trim();
-                const btn = document.getElementById('submitBtn');
-                const errDiv = document.getElementById('error-msg');
-                const succDiv = document.getElementById('success-msg');
-                errDiv.style.display = 'none'; succDiv.style.display = 'none';
-
-                if(!userInp || !codeInp) {{ errDiv.innerText = "Заполните все поля!"; errDiv.style.display = 'block'; return; }}
-                btn.disabled = true; btn.innerText = "Проверка кода...";
-
-                try {{
-                    const formData = new FormData();
-                    formData.append('username', userInp);
-                    formData.append('code', codeInp);
-                    const response = await fetch('/request_access', {{ method: 'POST', body: formData }});
-                    const result = await response.json();
-
-                    if(result.success) {{
-                        succDiv.innerText = result.message; succDiv.style.display = 'block';
-                        localStorage.setItem('tg_username', userInp);
-                        setTimeout(() => {{ checkAuth(); }}, 1000);
-                    }} else {{
-                        errDiv.innerText = result.message; errDiv.style.display = 'block';
-                        btn.disabled = false; btn.innerText = "Активировать доступ";
-                    }}
-                }} catch(e) {{
-                    errDiv.innerText = "Ошибка: " + e.message; errDiv.style.display = 'block';
-                    btn.disabled = false; btn.innerText = "Активировать доступ";
-                }}
-            }}
-            checkAuth();
+            window.onload = checkAuth;
         </script>
     </body>
     </html>
-    """)
+    """
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    uvicorn.run(app, host='0.0.0.0', port=8000)
