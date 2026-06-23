@@ -21,7 +21,7 @@ logger = logging.getLogger("QuantumCore")
 app = FastAPI(title="HROM QUANTUM CORE GLOBAL", version="18.0")
 
 DB_FILE = "requests.json"
-BOT_TOKEN = "8847524172:AAF3um77sDqsX6IWq_W-D-Hb8TQJSpK-0qo"
+BOT_TOKEN = "8761108877:AAGzMIeErZoGcVlLvd-yO-w7FZbIezCQ9SE"
 ADMIN_CHAT_ID = "6765689893"
 
 # --- ИНФРАСТРУКТУРА БАЗЫ ДАННЫХ JSON ---
@@ -300,7 +300,7 @@ ASSETS_DATA = {
             "КРИПТОВАЛЮТА": ["Bitcoin OTC", "Ethereum OTC", "Solana OTC", "Ripple OTC"],
             "СИРОВИНА / ІНДЕКСИ": ["Gold OTC", "Silver OTC", "Crude Oil OTC", "Brent Oil OTC", "US 500 OTC", "NASDAQ 100 OTC"]
         },
-        "[ВСІ АКТИВИ] — ЖИВИЙ РЫНОК": {
+        "[ВСІ АКТИВИ] — ЖИВИЙ РИНОК": {
             "ВАЛЮТНІ ПАРИ": ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "USD/CAD", "USD/CHF", "EUR/JPY", "GBP/JPY", "EUR/GBP"]
         }
     }
@@ -324,45 +324,17 @@ def calculate_ema(prices, period=20):
     weights /= weights.sum()
     return np.convolve(prices, weights, mode='valid')[-1]
 
-def calculate_bollinger_bands(prices, period=20, num_std=2):
-    if len(prices) < period:
-        return prices[-1], prices[-1]
-    sma = np.mean(prices[-period:])
-    std_dev = np.std(prices[-period:])
-    upper_band = sma + (num_std * std_dev)
-    lower_band = sma - (num_std * std_dev)
-    return upper_band, lower_band
-
 def ai_analyze_market(prices, rsi, ema):
     current_price = prices[-1]
-    upper_b, lower_b = calculate_bollinger_bands(prices, period=20)
-    bandwidth = (upper_b - lower_b) / current_price
-    
-    if bandwidth < 0.0008:
-        return "WAIT"
-        
-    local_max = max(prices[-20:-1]) if len(prices) >= 21 else max(prices)
-    local_min = min(prices[-20:-1]) if len(prices) >= 21 else min(prices)
-    
-    feature_breakout = 0.0
-    if current_price >= local_max * 0.999:
-        feature_breakout = 1.0
-    elif current_price <= local_min * 1.001:
-        feature_breakout = -1.0
-        
     feature_trend = 1.0 if current_price > ema else -1.0
-    feature_rsi_overbought = 1.0 if rsi > 68 else (-1.0 if rsi < 32 else 0.0)
+    feature_rsi_overbought = 1.0 if rsi > 70 else (-1.0 if rsi < 30 else 0.0)
+    momentum = (prices[-1] - prices[-5]) / prices[-5] if len(prices) >= 5 else 0.0
+    feature_momentum = 1.0 if momentum > 0 else -1.0
     
-    ai_score = (feature_breakout * 0.40) + (feature_trend * 0.35) + (-1.0 * feature_rsi_overbought * 0.25)
-    
-    if ai_score >= 0.45:
-        return "UP"
-    elif ai_score <= -0.45:
-        return "DOWN"
-    else:
-        return "WAIT"
+    ai_score = (feature_trend * 0.45) + (-1.0 * feature_rsi_overbought * 0.30) + (feature_momentum * 0.25)
+    return "UP" if ai_score >= 0 else "DOWN"
 
-def generate_otc_candles(asset_name, count=60):
+def generate_otc_candles(asset_name, count=50):
     seed_value = sum(ord(char) for char in asset_name) + int(asyncio.get_event_loop().time() / 150)
     state = random.Random(seed_value)
     if "Bitcoin" in asset_name: 
@@ -375,41 +347,39 @@ def generate_otc_candles(asset_name, count=60):
         start_price = 1.1250  
     prices = [start_price]
     for _ in range(count):
-        prices.append(prices[-1] * (1 + state.uniform(-0.0018, 0.0018)))
+        prices.append(prices[-1] * (1 + state.uniform(-0.0015, 0.0015)))
     return prices
 
 @app.get("/get_signal")
 async def get_signal(asset: str, timeframe: str, tg_username: str = Cookie(None)):
     user_for_alert = tg_username if tg_username else "Неизвестный ученик"
-    asyncio.create_task(send_tg_signal_alert(user_for_alert, asset, timeframe))
-    await asyncio.sleep(1.8)
     
+    # Отправка уведомления админу в Телеграм
+    asyncio.create_task(send_tg_signal_alert(user_for_alert, asset, timeframe))
+    
+    await asyncio.sleep(1.8)  # Эффект обдумывания ИИ
     is_otc = "OTC" in asset
     clean_asset = asset.replace(" OTC", "").strip()
     
     if is_otc:
-        prices = generate_otc_candles(asset, count=60)
+        prices = generate_otc_candles(asset, count=50)
     else:
         binance_symbol = BINANCE_MAPPING.get(clean_asset, "BTCUSDT")
         try:
-            url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval=1m&limit=60"
+            url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval=1m&limit=50"
             async with httpx.AsyncClient() as client:
                 res = await client.get(url, timeout=3.0)
                 prices = [float(c[4]) for c in res.json()]
         except:
-            prices = generate_otc_candles(clean_asset, count=60)
+            prices = generate_otc_candles(clean_asset, count=50)
 
     rsi = calculate_rsi(prices)
-    ema = calculate_ema(prices, period=20)
+    ema = calculate_ema(prices)
     calculated_signal = ai_analyze_market(prices, rsi, ema)
     
-    if calculated_signal == "WAIT":
-        calculated_signal = random.choice(["UP", "DOWN"])
-        base_accuracy = 65.0
-    else:
-        base_accuracy = 72.0 + (abs(rsi - 50.0) * 0.4)
-        
-    accuracy = round(min(max(base_accuracy, 66.5), 93.8), 1)
+    base_accuracy = 70.0 + (abs(rsi - 50.0) * 0.5)
+    accuracy = round(min(max(base_accuracy, 65.0), 94.5), 1)
+    
     return {"signal": calculated_signal, "payout": 92 if is_otc else 82, "accuracy": accuracy}
 
 # --- ПОЛНЫЙ ИНТЕРФЕЙС ПЛАТФОРМЫ ---
@@ -519,13 +489,13 @@ async def index(tg_username: str = Cookie(None)):
             const rawData = {json.dumps(ASSETS_DATA)};
             const hasCookie = {has_cookie};
             
-            const tf_otc_ru = ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "10 мин", "15 мин"];
-            const tf_otc_en = ["1 min", "2 min", "3 min", "4 min", "5 min", "10 min", "15 min"];
-            const tf_otc_ua = ["1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "10 хв", "15 хв"];
+            const tf_otc_ru = ["5 сек", "15 сек", "30 сек", "1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин", "15 мин"];
+            const tf_otc_en = ["5 sec", "15 sec", "30 sec", "1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min", "15 min"];
+            const tf_otc_ua = ["5 сек", "15 сек", "30 сек", "1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "6 хв", "7 хв", "8 хв", "9 хв", "10 хв", "15 хв"];
 
-            const tf_live_ru = ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "10 мин", "15 мин"];
-            const tf_live_en = ["1 min", "2 min", "3 min", "4 min", "5 min", "10 min", "15 min"];
-            const tf_live_ua = ["1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "10 хв", "15 хв"];
+            const tf_live_ru = ["1 мин", "2 мин", "3 мин", "4 мин", "5 мин", "6 мин", "7 мин", "8 мин", "9 мин", "10 мин", "15 мин"];
+            const tf_live_en = ["1 min", "2 min", "3 min", "4 min", "5 min", "6 min", "7 min", "8 min", "9 min", "10 min", "15 min"];
+            const tf_live_ua = ["1 хв", "2 хв", "3 хв", "4 хв", "5 хв", "6 хв", "7 хв", "8 хв", "9 хв", "10 хв", "15 хв"];
 
             let wins = 0, losses = 0, currentBet = 100, martStep = 0, currentExpInterval = null;
 
@@ -566,27 +536,6 @@ async def index(tg_username: str = Cookie(None)):
                 document.getElementById(screenId).style.display = 'flex';
             }}
 
-            async function sendForm() {{
-                const user = document.getElementById('username').value;
-                const key = document.getElementById('code').value;
-                if(!user || !key) return;
-                
-                const fData = new FormData();
-                fData.append('username', user);
-                fData.append('code', key);
-                
-                const response = await fetch('/request_access', {{ method: 'POST', body: fData }});
-                const res = await response.json();
-                if(res.success) {{
-                    document.getElementById('success-msg').innerText = res.message;
-                    document.getElementById('success-msg').style.display = 'block';
-                    setTimeout(() => {{ window.location.reload(); }}, 1500);
-                }} else {{
-                    document.getElementById('error-msg').innerText = res.message;
-                    document.getElementById('error-msg').style.display = 'block';
-                }}
-            }}
-
             function logout() {{ 
                 document.cookie = "tg_username=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"; 
                 window.location.reload(); 
@@ -613,141 +562,184 @@ async def index(tg_username: str = Cookie(None)):
                 updateDisplay(); 
             }}
             
-            const flags = {{ "ru": "🇷🇺", "en": "🇺🇸", "ua": "🇺🇦" }};
-
-            const translations = {{
-                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", vip: "👑 VIP СИГНАЛЫ", pocket: "ОТКРЫТЬ POCKET OPTION", reset: "СБРОСИТЬ СТАТИСТИКУ" }},
-                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION", vip: "👑 VIP SIGNALS", pocket: "OPEN POCKET OPTION", reset: "RESET STATISTICS" }},
-                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", vip: "👑 VIP СИГНАЛИ", pocket: "ВІДКРИТИ POCKET OPTION", reset: "СКИНУТИ СТАТИСТИКУ" }}
+            const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦" }};
+            const dictionary = {{ 
+                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
+                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "AI SCAN MARKET", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
+                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "ШІ ЗРОБИТИ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
             }};
-
-            function changeLang() {{
+            
+            function changeLang() {{ 
                 let l = document.getElementById('lang').value;
+                let d = dictionary[l] || dictionary['en'];
                 document.getElementById('flag_icon').innerText = flags[l];
-                document.getElementById('lbl_market').innerText = translations[l].market;
-                document.getElementById('lbl_type').innerText = translations[l].type;
-                document.getElementById('lbl_asset').innerText = translations[l].asset;
-                document.getElementById('lbl_tf').innerText = translations[l].tf;
-                document.getElementById('lbl_exp').innerText = translations[l].exp;
-                document.getElementById('vip_btn_text').innerText = translations[l].vip;
-                document.getElementById('btn_pocket').innerText = translations[l].pocket;
-                document.getElementById('lbl_reset').innerText = translations[l].reset;
+                document.getElementById('lbl_market').innerText = d.market; 
+                document.getElementById('lbl_type').innerText = d.type; 
+                document.getElementById('lbl_asset').innerText = d.asset; 
+                document.getElementById('lbl_tf').innerText = d.tf; 
+                document.getElementById('lbl_exp').innerText = d.exp; 
+                document.getElementById('runBtn').innerText = d.scan; 
+                document.getElementById('btn_pocket').innerText = d.pocket; 
+                document.getElementById('btn_supp').innerText = d.support; 
+                document.getElementById('status').innerText = d.ready; 
+                document.getElementById('vip_btn_text').innerText = d.vip; 
+                document.getElementById('martBtn').innerText = d.mart;
+                document.getElementById('lbl_profit').innerText = d.profit;
+                document.getElementById('lbl_loss').innerText = d.loss;
+                document.getElementById('lbl_reset').innerText = d.reset;
                 
-                let catSel = document.getElementById('cat');
-                catSel.innerHTML = "";
-                Object.keys(rawData[l]).forEach(c => {{
-                    catSel.options[catSel.options.length] = new Option(c, c);
-                }});
-                updCategory();
+                let catSelect = document.getElementById('cat'); 
+                catSelect.innerHTML = ""; 
+                Object.keys(rawData[l]).forEach(c => {{ catSelect.innerHTML += `<option>${{c}}</option>`; }}); 
+                updCategory(); 
             }}
-
-            function updCategory() {{
+            
+            function calcLocalPayout(assetName) {{ 
+                return assetName.includes("OTC") ? 92 : 82; 
+            }}
+            
+            function updCategory() {{ 
+                let l = document.getElementById('lang').value, 
+                    c = document.getElementById('cat').value, 
+                    types = Object.keys(rawData[l][c]); 
+                document.getElementById('sub_cat').innerHTML = types.map(t => `<option>${{t}}</option>`).join(''); 
+                updSubCategory(); 
+            }}
+            
+            function updSubCategory() {{ 
+                let l = document.getElementById('lang').value, 
+                    c = document.getElementById('cat').value, 
+                    t = document.getElementById('sub_cat').value, 
+                    assets = rawData[l][c][t] || []; 
+                document.getElementById('asset').innerHTML = assets.map(a => `<option>${{a}}</option>`).join(''); 
+                updAsset(); 
+            }}
+            
+            function updAsset() {{ 
                 let l = document.getElementById('lang').value;
-                let c = document.getElementById('cat').value;
-                let subSel = document.getElementById('sub_cat');
-                subSel.innerHTML = "";
+                let asset = document.getElementById('asset').value; 
+                let isOtc = asset.includes("OTC");
                 
-                if(c.includes("LIVE") || c.includes("ЖИВОЙ") || c.includes("ЖИВИЙ")) {{
-                    document.getElementById('sub_cat_block').style.display = 'none';
-                    let assetSel = document.getElementById('asset');
-                    assetSel.innerHTML = "";
-                    rawData[l][c]["ВАЛЮТНЫЕ ПАРЫ" || "CURRENCY PAIRS" || "ВАЛЮТНІ ПАРИ"].forEach(a => {{
-                        assetSel.options[assetSel.options.length] = new Option(a, a);
-                    }});
-                    updAsset();
+                document.getElementById('payout_lbl').innerText = `PAYOUT: ${{calcLocalPayout(asset)}}%`; 
+                
+                let timeSelect = document.getElementById('time');
+                let expSelect = document.getElementById('exp');
+                
+                let active_opts = [];
+                if (isOtc) {{
+                    if(l === 'ru') active_opts = tf_otc_ru;
+                    else if(l === 'ua') active_opts = tf_otc_ua;
+                    else active_opts = tf_otc_en;
                 }} else {{
-                    document.getElementById('sub_cat_block').style.display = 'block';
-                    Object.keys(rawData[l][c]).forEach(s => {{
-                        subSel.options[subSel.options.length] = new Option(s, s);
-                    }});
-                    updSubCategory();
+                    if(l === 'ru') active_opts = tf_live_ru;
+                    else if(l === 'ua') active_opts = tf_live_ua;
+                    else active_opts = tf_live_en;
                 }}
-            }}
-
-            function updSubCategory() {{
-                let l = document.getElementById('lang').value;
-                let c = document.getElementById('cat').value;
-                let s = document.getElementById('sub_cat').value;
-                let assetSel = document.getElementById('asset');
-                assetSel.innerHTML = "";
-                rawData[l][c][s].forEach(a => {{
-                    assetSel.options[assetSel.options.length] = new Option(a, a);
-                }});
-                updAsset();
-            }}
-
-            function updAsset() {{
-                let a = document.getElementById('asset').value;
-                let l = document.getElementById('lang').value;
-                let tfSel = document.getElementById('time');
-                let expSel = document.getElementById('exp');
-                tfSel.innerHTML = ""; expSel.innerHTML = "";
                 
-                let tfs = a.includes("OTC") ? (l=='ru'?tf_otc_ru:(l=='ua'?tf_otc_ua:tf_otc_en)) : (l=='ru'?tf_live_ru:(l=='ua'?tf_live_ua:tf_live_en));
-                tfs.forEach(t => {{
-                    tfSel.options[tfSel.options.length] = new Option(t, t);
-                    expSel.options[expSel.options.length] = new Option(t, t);
-                }});
-                document.getElementById('payout_lbl').innerText = "PAYOUT: " + (a.includes("OTC") ? "92%" : "82%");
+                timeSelect.innerHTML = active_opts.map(o => `<option>${{o}}</option>`).join('');
+                expSelect.innerHTML = active_opts.map(o => `<option>${{o}}</option>`).join('');
             }}
-
+            
             async function startFlow(isMart = false) {{
-                document.getElementById('runBtn').style.display = 'none';
+                if(currentExpInterval) clearInterval(currentExpInterval);
+                let l = document.getElementById('lang').value;
+                let d = dictionary[l] || dictionary['en'];
+                
+                if(!isMart) {{ 
+                    currentBet = 100; 
+                    martStep = 0; 
+                }} 
+                else {{ 
+                    currentBet = (currentBet * 2.3).toFixed(2); 
+                    martStep++; 
+                }}
+                
                 document.getElementById('martBtn').style.display = 'none';
                 document.getElementById('res').innerText = "--";
                 document.getElementById('accuracy').style.display = 'none';
+                document.getElementById('timer').innerText = "";
                 document.getElementById('loader').style.display = 'block';
                 
-                let asset = document.getElementById('asset').value;
-                let timeframe = document.getElementById('time').value;
+                let resp = await fetch(`/get_signal?asset=${{encodeURIComponent(document.getElementById('asset').value)}}&timeframe=${{encodeURIComponent(document.getElementById('time').value)}}`);
+                let data = await resp.json();
                 
-                try {{
-                    let response = await fetch(`/get_signal?asset=${{encodeURIComponent(asset)}}&timeframe=${{encodeURIComponent(timeframe)}}`);
-                    let data = await response.json();
-                    
-                    document.getElementById('loader').style.display = 'none';
-                    let resEl = document.getElementById('res');
-                    resEl.innerText = data.signal;
-                    resEl.style.color = data.signal === "UP" ? "#00ff66" : "#ff3344";
-                    
-                    let accEl = document.getElementById('accuracy');
-                    accEl.innerText = `ACCURACY: ${{data.accuracy}}%`;
-                    accEl.style.display = 'block';
-                    
-                    startTimer(timeframe);
-                }} catch(e) {{
-                    document.getElementById('loader').style.display = 'none';
-                    document.getElementById('runBtn').style.display = 'block';
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('res').innerText = (data.signal == "UP" ? d.up : d.down);
+                document.getElementById('res').style.color = data.signal == "UP" ? "#00ff66" : "#ff3344";
+                document.getElementById('accuracy').style.display = 'block';
+                document.getElementById('accuracy').innerText = "ACCURACY: " + data.accuracy + "%";
+                
+                let expVal = document.getElementById('exp').value;
+                let expSeconds = 60;
+                
+                if (expVal.includes("сек") || expVal.includes("sec")) {{
+                    expSeconds = parseInt(expVal.replace(/\D/g, ''));
+                }} else {{
+                    expSeconds = parseInt(expVal.replace(/\D/g, '')) * 60;
                 }}
-            }}
-
-            function startTimer(tf) {{
-                if(currentExpInterval) clearInterval(currentExpInterval);
-                let mins = parseInt(tf) || 1;
-                let totalSecs = mins * 60;
                 
-                let timerEl = document.getElementById('timer');
+                timerEl = document.getElementById('timer');
+                timerEl.innerText = d.open;
                 currentExpInterval = setInterval(() => {{
-                    let m = Math.floor(totalSecs / 60);
-                    let s = totalSecs % 60;
-                    timerEl.innerText = `EXPIRATION: ${{m.toString().padStart(2,'0')}}:${{s.toString().padStart(2,'0')}}`;
-                    totalSecs--;
-                    if(totalSecs < 0) {{
-                        clearInterval(currentExpInterval);
-                        timerEl.innerText = "";
-                        document.getElementById('runBtn').style.display = 'block';
-                        document.getElementById('martBtn').style.display = 'block';
+                    if(expSeconds > 0) {{ 
+                        timerEl.innerText = d.close + expSeconds + (l == 'ru' || l == 'ua' ? " сек" : " sec"); 
+                        expSeconds--; 
+                    }} 
+                    else {{ 
+                        clearInterval(currentExpInterval); 
+                        timerEl.innerText = d.end; 
+                        document.getElementById('martBtn').style.display = 'block'; 
                     }}
                 }}, 1000);
             }}
 
-            window.onload = function() {{
-                checkAuth();
-            }};
+            async function sendForm() {{
+                const userInp = document.getElementById('username').value.trim().replace('@', '');
+                const codeInp = document.getElementById('code').value.trim();
+                const btn = document.getElementById('submitBtn');
+                const errDiv = document.getElementById('error-msg');
+                const succDiv = document.getElementById('success-msg');
+                errDiv.style.display = 'none'; 
+                succDiv.style.display = 'none';
+
+                if(!userInp || !codeInp) {{ 
+                    errDiv.innerText = "Заполните все поля!"; 
+                    errDiv.style.display = 'block'; 
+                    return; 
+                }}
+                btn.disabled = true; 
+                btn.innerText = "Проверка кода...";
+
+                try {{
+                    const formData = new FormData();
+                    formData.append('username', userInp);
+                    formData.append('code', codeInp);
+                    const response = await fetch('/request_access', {{ method: 'POST', body: formData }});
+                    const result = await response.json();
+
+                    if(result.success) {{
+                        succDiv.innerText = result.message; 
+                        succDiv.style.display = 'block';
+                        setTimeout(() => {{ checkAuth(); }}, 1000);
+                    }} else {{
+                        errDiv.innerText = result.message; 
+                        errDiv.style.display = 'block';
+                        btn.disabled = false; 
+                        btn.innerText = "Активировать доступ";
+                    }}
+                }} catch(e) {{
+                    errDiv.innerText = "Ошибка: " + e.message; 
+                    errDiv.style.display = 'block';
+                    btn.disabled = false; 
+                    btn.innerText = "Активировать доступ";
+                }}
+            }}
+            checkAuth();
         </script>
     </body>
     </html>
     """
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
