@@ -465,7 +465,7 @@ async def index(tg_username: str = Cookie(None)):
                     <div style="flex:1;"><label id="lbl_exp">ЭКСПИРАЦИЯ</label><select id="exp"></select></div>
                 </div>
                 
-                <button id="runBtn" class="btn btn-main" onclick="prepareFlow()">ИИ СДЕЛАТЬ ЗА ВАС</button>
+                <button id="runBtn" class="btn btn-main" onclick="startFlow()">ИИ СДЕЛАТЬ ЗА ВАС</button>
                 <button id="martBtn" class="btn btn-mart" onclick="startFlow(true)">ПЕРЕКРЫТИЕ</button>
                 
                 <a href="https://pocketoption.com/register" target="_blank" style="text-decoration: none;"><button id="btn_pocket" class="btn btn-pocket">ОТКРЫТЬ POCKET OPTION</button></a>
@@ -564,9 +564,9 @@ async def index(tg_username: str = Cookie(None)):
             
             const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦" }};
             const dictionary = {{ 
-                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН", wait: "ВХОД В СДЕЛКУ ЧЕРЕЗ: " }}, 
-                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "AI SCAN MARKET", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED", wait: "ENTER TRADE IN: " }},
-                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "ШІ ЗРОБИТИ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО", wait: "ВХІД В УГОДУ ЧЕРЕЗ: " }}
+                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН", ai_analyzing: "ИИ анализирует...", ai_countdown: "Вход в сделку через: " }}, 
+                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "AI SCAN MARKET", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED", ai_analyzing: "AI analyzing...", ai_countdown: "Entering trade in: " }},
+                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "ШІ ЗРОБИТИ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО", ai_analyzing: "ШІ аналізує...", ai_countdown: "Вхід в угоду через: " }}
             }};
             
             function changeLang() {{ 
@@ -640,28 +640,6 @@ async def index(tg_username: str = Cookie(None)):
                 expSelect.innerHTML = active_opts.map(o => `<option>${{o}}</option>`).join('');
             }}
             
-            function prepareFlow() {{
-                let l = document.getElementById('lang').value;
-                let d = dictionary[l] || dictionary['en'];
-                let runBtn = document.getElementById('runBtn');
-                let timerEl = document.getElementById('timer');
-                let count = 5;
-                
-                runBtn.disabled = true;
-                timerEl.style.color = "#ffffff";
-                
-                let int = setInterval(() => {{
-                    timerEl.innerText = d.wait + count;
-                    count--;
-                    if(count < 0) {{
-                        clearInterval(int);
-                        timerEl.innerText = "";
-                        runBtn.disabled = false;
-                        startFlow();
-                    }}
-                }}, 1000);
-            }}
-            
             async function startFlow(isMart = false) {{
                 if(currentExpInterval) clearInterval(currentExpInterval);
                 let l = document.getElementById('lang').value;
@@ -670,22 +648,66 @@ async def index(tg_username: str = Cookie(None)):
                 if(!isMart) {{ 
                     currentBet = 100; 
                     martStep = 0; 
+                    
+                    // --- ЛОГИКА АВТОМАТИЧЕСКОГО ИИ ПОДБОРА ПАРАМЕТРОВ ---
+                    document.getElementById('martBtn').style.display = 'none';
+                    document.getElementById('res').innerText = "--";
+                    document.getElementById('accuracy').style.display = 'none';
+                    document.getElementById('timer').innerText = "";
+                    
+                    // Крутится кружочек и пишется статус подбора ИИ
+                    document.getElementById('loader').style.display = 'block';
+                    document.getElementById('status').innerText = d.ai_analyzing;
+                    
+                    // Подбор случайных параметров
+                    let catSelect = document.getElementById('cat');
+                    catSelect.selectedIndex = Math.floor(Math.random() * catSelect.options.length);
+                    updCategory();
+                    
+                    let subCatSelect = document.getElementById('sub_cat');
+                    subCatSelect.selectedIndex = Math.floor(Math.random() * subCatSelect.options.length);
+                    updSubCategory();
+                    
+                    let assetSelect = document.getElementById('asset');
+                    assetSelect.selectedIndex = Math.floor(Math.random() * assetSelect.options.length);
+                    updAsset();
+                    
+                    let timeSelect = document.getElementById('time');
+                    timeSelect.selectedIndex = Math.floor(Math.random() * timeSelect.options.length);
+                    
+                    let expSelect = document.getElementById('exp');
+                    expSelect.selectedIndex = Math.floor(Math.random() * expSelect.options.length);
+                    
+                    // Обратный отсчет на 5 секунд перед входом в сделку
+                    let aiCountdown = 5;
+                    await new Promise((resolve) => {{
+                        let aiInterval = setInterval(() => {{
+                            if(aiCountdown > 0) {{
+                                document.getElementById('timer').innerText = d.ai_countdown + aiCountdown + (l == 'ru' || l == 'ua' ? " сек" : " sec");
+                                aiCountdown--;
+                            }} else {{
+                                clearInterval(aiInterval);
+                                document.getElementById('timer').innerText = "";
+                                resolve();
+                            }}
+                        }}, 1000);
+                    }});
                 }} 
                 else {{ 
                     currentBet = (currentBet * 2.3).toFixed(2); 
                     martStep++; 
+                    document.getElementById('martBtn').style.display = 'none';
+                    document.getElementById('res').innerText = "--";
+                    document.getElementById('accuracy').style.display = 'none';
+                    document.getElementById('timer').innerText = "";
+                    document.getElementById('loader').style.display = 'block';
                 }}
-                
-                document.getElementById('martBtn').style.display = 'none';
-                document.getElementById('res').innerText = "--";
-                document.getElementById('accuracy').style.display = 'none';
-                document.getElementById('timer').innerText = "";
-                document.getElementById('loader').style.display = 'block';
                 
                 let resp = await fetch(`/get_signal?asset=${{encodeURIComponent(document.getElementById('asset').value)}}&timeframe=${{encodeURIComponent(document.getElementById('time').value)}}`);
                 let data = await resp.json();
                 
                 document.getElementById('loader').style.display = 'none';
+                document.getElementById('status').innerText = d.ready;
                 document.getElementById('res').innerText = (data.signal == "UP" ? d.up : d.down);
                 document.getElementById('res').style.color = data.signal == "UP" ? "#00ff66" : "#ff3344";
                 document.getElementById('accuracy').style.display = 'block';
