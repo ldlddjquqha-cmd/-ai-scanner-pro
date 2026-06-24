@@ -21,7 +21,7 @@ logger = logging.getLogger("QuantumCore")
 app = FastAPI(title="HROM QUANTUM CORE GLOBAL", version="18.0")
 
 DB_FILE = "requests.json"
-BOT_TOKEN = "8847524172:AAF3um77sDqsX6IWq_W-D-Hb8TQJSpK-0qo"
+BOT_TOKEN = "8761108877:AAGzMIeErZoGcVlLvd-yO-w7FZbIezCQ9SE"
 ADMIN_CHAT_ID = "6765689893"
 
 # --- ИНФРАСТРУКТУРА БАЗЫ ДАННЫХ JSON ---
@@ -465,7 +465,7 @@ async def index(tg_username: str = Cookie(None)):
                     <div style="flex:1;"><label id="lbl_exp">ЭКСПИРАЦИЯ</label><select id="exp"></select></div>
                 </div>
                 
-                <button id="runBtn" class="btn btn-main" onclick="startFlow()">ИИ СДЕЛАТЬ ЗА ВАС</button>
+                <button id="runBtn" class="btn btn-main" onclick="prepareFlow()">ИИ СДЕЛАТЬ ЗА ВАС</button>
                 <button id="martBtn" class="btn btn-mart" onclick="startFlow(true)">ПЕРЕКРЫТИЕ</button>
                 
                 <a href="https://pocketoption.com/register" target="_blank" style="text-decoration: none;"><button id="btn_pocket" class="btn btn-pocket">ОТКРЫТЬ POCKET OPTION</button></a>
@@ -564,9 +564,9 @@ async def index(tg_username: str = Cookie(None)):
             
             const flags = {{ ru: "🇷🇺", en: "🇺🇸", ua: "🇺🇦" }};
             const dictionary = {{ 
-                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН" }}, 
-                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "AI SCAN MARKET", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED" }},
-                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "ШІ ЗРОБИТИ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО" }}
+                ru: {{ market: "КАТЕГОРИЯ РЫНКА", type: "ТИП АКТИВА", asset: "АКТИВНАЯ ПАРА", tf: "ИНТЕРВАЛ СВЕЧИ", exp: "ЭКСПИРАЦИЯ", scan: "ИИ СДЕЛАТЬ ЗА ВАС", pocket: "ОТКРЫТЬ POCKET OPTION", support: "РАЗРАБОТЧИК / SUPPORT", ready: "СИСТЕМА СИНХРОНИЗИРОВАНА", vip: "👑 VIP СИГНАЛЫ", mart: "ПЕРЕКРЫТИЕ", profit: "Profit", loss: "Loss", reset: "СБРОСИТЬ СТАТИСТИКУ", up: "ВВЕРХ", down: "ВНИЗ", open: "СДЕЛКА ОТКРЫТА!", close: "ДО ЗАКРЫТИЯ: ", end: "ЦИКЛ ЗАВЕРШЕН", wait: "ВХОД В СДЕЛКУ ЧЕРЕЗ: " }}, 
+                en: {{ market: "MARKET CATEGORY", type: "ASSET TYPE", asset: "ACTIVE PAIR", tf: "CANDLE TIMEFRAME", exp: "EXPIRATION TIME", scan: "AI SCAN MARKET", pocket: "OPEN POCKET OPTION", support: "DEVELOPER / SUPPORT", ready: "SYSTEM SYNCHRONIZED", vip: "👑 VIP SIGNALS", mart: "MARTINGALE", profit: "Profit", loss: "Loss", reset: "RESET STATISTICS", up: "CALL / UP", down: "PUT / DOWN", open: "TRADE OPENED!", close: "CLOSING IN: ", end: "CYCLE COMPLETED", wait: "ENTER TRADE IN: " }},
+                ua: {{ market: "КАТЕГОРІЯ РИНКУ", type: "ТИП АКТИВУ", asset: "АКТИВНА ПАРА", tf: "ІНТЕРВАЛ СВІЧКИ", exp: "ЕКСПІРАЦІЯ", scan: "ШІ ЗРОБИТИ ЗА ВАС", pocket: "ВІДКРИТИ POCKET OPTION", support: "РОЗРОБНИК / SUPPORT", ready: "СИСТЕМА СИНХРОНІЗОВАНА", vip: "👑 VIP СИГНАЛИ", mart: "ПЕРЕКРИТТЯ", profit: "Профіт", loss: "Лос", reset: "СКИНУТИ СТАТИСТИКУ", up: "ВГОРУ", down: "ВНИЗ", open: "УГОДУ ВІДКРИТО!", close: "ДО ЗАКРИТЯ: ", end: "ЦИКЛ ЗАВЕРШЕНО", wait: "ВХІД В УГОДУ ЧЕРЕЗ: " }}
             }};
             
             function changeLang() {{ 
@@ -638,6 +638,28 @@ async def index(tg_username: str = Cookie(None)):
                 
                 timeSelect.innerHTML = active_opts.map(o => `<option>${{o}}</option>`).join('');
                 expSelect.innerHTML = active_opts.map(o => `<option>${{o}}</option>`).join('');
+            }}
+            
+            function prepareFlow() {{
+                let l = document.getElementById('lang').value;
+                let d = dictionary[l] || dictionary['en'];
+                let runBtn = document.getElementById('runBtn');
+                let timerEl = document.getElementById('timer');
+                let count = 5;
+                
+                runBtn.disabled = true;
+                timerEl.style.color = "#ffffff";
+                
+                let int = setInterval(() => {{
+                    timerEl.innerText = d.wait + count;
+                    count--;
+                    if(count < 0) {{
+                        clearInterval(int);
+                        timerEl.innerText = "";
+                        runBtn.disabled = false;
+                        startFlow();
+                    }}
+                }}, 1000);
             }}
             
             async function startFlow(isMart = false) {{
