@@ -27,23 +27,22 @@ ADMIN_CHAT_ID = "6765689893"
 # --- ИНФРАСТРУКТУРА БАЗЫ ДАННЫХ JSON ---
 def get_db():
     if not os.path.exists(DB_FILE): 
-        return {"users": {}, "keys": [], "history": []}
+        return {"users": {}, "history": []}
     with open(DB_FILE, "r", encoding="utf-8") as f:
         try: 
             data = json.load(f)
-            if "users" not in data: data = {"users": data, "keys": [], "history": []}
-            if "keys" not in data: data["keys"] = []
+            if "users" not in data: data = {"users": data, "history": []}
             if "history" not in data: data["history"] = []
             return data
         except: 
-            return {"users": {}, "keys": [], "history": []}
+            return {"users": {}, "history": []}
 
 def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 # --- СИСТЕМА УВЕДОМЛЕНИЙ В ТЕЛЕГРАМ ---
-async def send_tg_notification(username, code):
+async def send_tg_notification(username):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     reply_markup = {
         "inline_keyboard": [
@@ -55,7 +54,7 @@ async def send_tg_notification(username, code):
     }
     payload = {
         "chat_id": ADMIN_CHAT_ID,
-        "text": f"🔔 **Новый ученик активировал доступ!**\n\n**Ник:** @{username}\n**Код:** `{code}`\n**Статус:** ✅ Доступ разрешен",
+        "text": f"🔔 **Новый ученик вошел в систему!**\n\n**Ник:** @{username}\n**Статус:** ✅ Доступ разрешен",
         "parse_mode": "Markdown",
         "reply_markup": reply_markup
     }
@@ -165,24 +164,6 @@ async def telegram_webhook(request: Request):
         logger.error(f"Ошибка вебхука: {e}")
     return {"status": "ok"}
 
-# --- ГЕНЕРАТОР КЛЮЧЕЙ ДОСТУПА ---
-@app.get("/generate_key")
-async def generate_key(master: str = None):
-    if master != "SUPER_ADMIN_123": 
-        return HTMLResponse("<h1 style='color:red; text-align:center;'>Доступ закрыт!</h1>")
-    chars = "0123456789ABCDEF"
-    new_key = "HROM_" + "".join(random.choice(chars) for _ in range(6))
-    db = get_db()
-    db["keys"].append(new_key)
-    save_db(db)
-    return HTMLResponse(f"""
-    <div style="background:#06080c; color:#ffffff; font-family:sans-serif; text-align:center; padding:50px; height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center; box-sizing:border-box;">
-        <p style="color:#586988; font-size:18px; margin-bottom:5px;">Создан новый одноразовый ключ:</p>
-        <div style="background:#0f131e; border:1px solid #1a2233; color:#00ff66; font-size:26px; font-weight:bold; padding:15px 30px; border-radius:12px; margin-bottom:20px;">{new_key}</div>
-        <a href="/generate_key?master=SUPER_ADMIN_123"><button style="background:#963bfe; color:white; font-weight:bold; padding:14px 28px; border:none; border-radius:10px; cursor:pointer;">Создать еще один</button></a>
-    </div>
-    """)
-
 # --- АДМИН-ПАНЕЛЬ ---
 @app.get("/admin_panel")
 async def admin_panel(secret: str = None):
@@ -234,9 +215,8 @@ async def check_user_status(username: str = ""):
 
 # --- ФУНКЦИЯ КУКИ (COOKIE) ПРИ АВТОРИЗАЦИИ ---
 @app.post("/request_access")
-async def request_access(username: str = Form(...), code: str = Form(...)):
+async def request_access(username: str = Form(...)):
     username = username.strip().replace("@", "").replace(" ", "")
-    code = code.strip().replace(" ", "")
     db = get_db()
     
     if username in db["users"] and db["users"][username]["status"] == "blocked":
@@ -246,18 +226,13 @@ async def request_access(username: str = Form(...), code: str = Form(...)):
         response = JSONResponse({"success": True, "message": "Доступ активен! Входим..."})
         response.set_cookie(key="tg_username", value=username, max_age=2592000)
         return response
-        
-    if code not in db["keys"]:
-        return JSONResponse({"success": False, "message": "Неверный или использованный код!"})
     
-    db["keys"].remove(code)
     db["users"][username] = {
         "status": "approved", 
-        "used_code": code, 
         "activated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }
     save_db(db)
-    asyncio.create_task(send_tg_notification(username, code))
+    asyncio.create_task(send_tg_notification(username))
     
     response = JSONResponse({"success": True, "message": "Доступ активирован!"})
     response.set_cookie(key="tg_username", value=username, max_age=2592000)
@@ -424,11 +399,10 @@ async def index(tg_username: str = Cookie(None)):
 
         <div id="auth-screen" class="container" style="display: none;">
             <div class="title">HROM QUANTUM CORE</div>
-            <div class="subtitle">Для доступа к сигналам введите ваш уникальный код</div>
+            <div class="subtitle">Для доступа к сигналам введите ваш никнейм Telegram</div>
             <div style="width: 100%; display: flex; flex-direction: column; align-items: center;">
                 <div class="input-box"><input type="text" id="username" placeholder="Введите ваш @username в ТГ"></div>
-                <div class="input-box"><input type="text" id="code" placeholder="Введите код доступа"></div>
-                <button type="button" id="submitBtn" class="btn-activate" onclick="sendForm()">Активировать доступ</button>
+                <button type="button" id="submitBtn" class="btn-activate" onclick="sendForm()">Войти в систему</button>
                 <div id="error-msg" style="color: #ff3344; font-size: 13px; font-weight: bold; margin-top: 15px; display: none;"></div>
                 <div id="success-msg" style="color: #00ff66; font-size: 13px; font-weight: bold; margin-top: 15px; display: none;"></div>
             </div>
@@ -515,16 +489,12 @@ async def index(tg_username: str = Cookie(None)):
                 try {{
                     const response = await fetch('/check_user_status?username=' + encodeURIComponent(userCookie));
                     const data = await response.json();
-                    if (data.status === 'approved') {{ 
-                        showScreen('terminal-screen'); 
-                        changeLang(); 
-                    }} 
-                    else if (data.status === 'blocked') {{ 
+                    if (data.status === 'blocked') {{ 
                         showScreen('blocked-screen'); 
                     }}
                     else {{ 
-                        document.cookie = "tg_username=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"; 
-                        showScreen('auth-screen'); 
+                        showScreen('terminal-screen'); 
+                        changeLang(); 
                     }}
                 }} catch(e) {{ 
                     showScreen('auth-screen'); 
@@ -643,7 +613,6 @@ async def index(tg_username: str = Cookie(None)):
                 expSelect.innerHTML = active_opts.map(o => `<option>${{o}}</option>`).join('');
             }}
             
-            // --- НОВАЯ ФУНКЦИЯ ДЛЯ АВТОМАТИЧЕСКОГО РЕЖИМА ИИ ---
             async function startAIFlow() {{
                 if(currentExpInterval) clearInterval(currentExpInterval);
                 let l = document.getElementById('lang').value;
@@ -657,11 +626,9 @@ async def index(tg_username: str = Cookie(None)):
                 document.getElementById('accuracy').style.display = 'none';
                 document.getElementById('timer').innerText = "";
                 
-                // Включаем крутилку и статус
                 document.getElementById('loader').style.display = 'block';
                 document.getElementById('status').innerText = d.ai_analyzing;
                 
-                // ИИ подбирает всё сам случайным образом
                 let catSelect = document.getElementById('cat');
                 catSelect.selectedIndex = Math.floor(Math.random() * catSelect.options.length);
                 updCategory();
@@ -680,7 +647,6 @@ async def index(tg_username: str = Cookie(None)):
                 let expSelect = document.getElementById('exp');
                 expSelect.selectedIndex = Math.floor(Math.random() * expSelect.options.length);
                 
-                // Обратный отсчет 5 секунд
                 let aiCountdown = 5;
                 await new Promise((resolve) => {{
                     let aiInterval = setInterval(() => {{
@@ -695,11 +661,9 @@ async def index(tg_username: str = Cookie(None)):
                     }}, 1000);
                 }});
                 
-                // После отсчета запрашиваем сигнал
                 executeSignalRequest(d, l);
             }}
 
-            // --- РУЧНОЙ РЕЖИМ (ДЛЯ КНОПКИ СКАНИРОВАТЬ И ПЕРЕКРЫТИЯ) ---
             async function startFlow(isMart = false) {{
                 if(currentExpInterval) clearInterval(currentExpInterval);
                 let l = document.getElementById('lang').value;
@@ -723,7 +687,6 @@ async def index(tg_username: str = Cookie(None)):
                 executeSignalRequest(d, l);
             }}
 
-            // Общая функция отправки и таймера, чтобы не дублировать код
             async function executeSignalRequest(d, l) {{
                 let resp = await fetch(`/get_signal?asset=${{encodeURIComponent(document.getElementById('asset').value)}}&timeframe=${{encodeURIComponent(document.getElementById('time').value)}}`);
                 let data = await resp.json();
@@ -761,25 +724,23 @@ async def index(tg_username: str = Cookie(None)):
 
             async function sendForm() {{
                 const userInp = document.getElementById('username').value.trim().replace('@', '');
-                const codeInp = document.getElementById('code').value.trim();
                 const btn = document.getElementById('submitBtn');
                 const errDiv = document.getElementById('error-msg');
                 const succDiv = document.getElementById('success-msg');
                 errDiv.style.display = 'none'; 
                 succDiv.style.display = 'none';
 
-                if(!userInp || !codeInp) {{ 
-                    errDiv.innerText = "Заполните все поля!"; 
+                if(!userInp) {{ 
+                    errDiv.innerText = "Введите ваш username!"; 
                     errDiv.style.display = 'block'; 
                     return; 
                 }}
                 btn.disabled = true; 
-                btn.innerText = "Проверка кода...";
+                btn.innerText = "Вход...";
 
                 try {{
                     const formData = new FormData();
                     formData.append('username', userInp);
-                    formData.append('code', codeInp);
                     const response = await fetch('/request_access', {{ method: 'POST', body: formData }});
                     const result = await response.json();
 
@@ -791,13 +752,13 @@ async def index(tg_username: str = Cookie(None)):
                         errDiv.innerText = result.message; 
                         errDiv.style.display = 'block';
                         btn.disabled = false; 
-                        btn.innerText = "Активировать доступ";
+                        btn.innerText = "Войти в систему";
                     }}
                 }} catch(e) {{
                     errDiv.innerText = "Ошибка: " + e.message; 
                     errDiv.style.display = 'block';
                     btn.disabled = false; 
-                    btn.innerText = "Активировать доступ";
+                    btn.innerText = "Войти в систему";
                 }}
             }}
             checkAuth();
